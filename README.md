@@ -1,4 +1,7 @@
-![Picture](img/opentongchi.webp)
+<p align="center">
+<img src="img/opentongchi.webp" width="25%" height="25%" />
+</p>
+
 # OpenTongchi
 Open source QT systray tool to use and manage HashiCorp products. Experimental, vibe coded, and not for production usage yet. Use at your own risk.
 
@@ -11,6 +14,6 @@ pip install PyQt6
 # Usage
 This app uses your existing HashiCorp environment variables, so launch and use the icon accordingly:
 ```
-./opentongchi_claude.py
+./opus/main.py
 ```
-![opentongchi](https://github.com/user-attachments/assets/b99830bf-c562-461f-906a-acfaa4f13c3b)
+[OpenTongchi.webm](https://github.com/user-attachments/assets/9b5c3066-ae7e-4603-b921-8c1df202fea7)
