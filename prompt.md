@@ -1,8 +1,8 @@
-Hi I'm trying to refactor an old Python project I never finished called OpenTongchi. The framework code is below. It's a systray widget (wxwidget) to manage and browse HashiCorp tools. My version is old and used GTK3 but now GTK4 removed a lot of simple features so I would like to migrate it to QT6. Please refactor the systray app framework to QT6, implementing all TODOs where possible. Use the following rules:
+Hi I'm trying to finish an old Python project called OpenTongchi. It's a Python systray widget in QT6 to manage and browse HashiCorp tools. This is open sourced under the MPL-2 license. Please use the following rules to finish the program:
 
 Main Features:
-1. The main menu should be shown when right or left clicking the icon. Use the same menu icons as the framework code below. Use creative emojis in menu names for things like keys, settings, etc.
-2. Use standard environment variables like VAULT_ADDR, CONSUL_ADDR, etc where available. HASHICORP_NAMESPACE should be used as a global variable across all products that support namespaces.
+1. The main menu should be shown when right or left clicking the icon. Use creative emoji icons in menu names for things like keys, settings, etc.
+2. Use standard environment variables like VAULT_ADDR, CONSUL_ADDR, NOMAD_ADDR, etc where available. HASHICORP_NAMESPACE should be used as a global variable across all products that support namespaces.
 3. All menus, secrets, services, etc should be browsable by nested tree menus to minimize dialog navigation. Change the cursor or set menus to "Loading.." while fetching asynchronous requests to indicate when menu loading is occuring in the background.
 4. Present a basic CRUD menu for attributes that allows users to view and manipulate values. Use a native key/value CRUD menu or table/spreadsheet where JSON is needed rather than showing raw JSON text.
 5. Use schemas where possible, such as Vault's OpenAPIv3 schema endpoint to dynamically explore menu trees. Cache the schemas locally if needed with a refresh schemas menu entry.
@@ -21,6 +21,11 @@ OpenTofu Requirements:
 2. The HCP menu should browse the tree of orgs and their workspaces in HCP Terraform aka Terraform Cloud.
 3. Workspace lists should include leading status emojis with green light for fine workspaces and red light for problematic or failing workspaces. This should apply both to workspace directories in the local opentofu home and HCP.
 
+Consul Requirements:
+1. Services should be prefixed with status emojis.
+2. KV entries should be browsable in a tree menu with table forms just like OpenBao.
+3. Namespace should be respected as configured globally.
+
 Nomad Requirements:
 1. Job list menus should be prefixed with status colors.
 2. Clicking on a job should show a table menu with the status of the current job and allow CRUD editing or creating jobs.
@@ -29,116 +34,4 @@ Nomad Requirements:
 5. Alerts should be shown as jobs fail, changes occur, or autoscale operations occur.
 6. Status should be refreshed at a configured interval defaulting to 10 seconds.
 
-Consul Requirements:
-1. Services should be prefixed with status emojis.
-2. KV entries should be browsable in a tree menu with table forms just like OpenBao.
-3. Namespace should be respected as configured globally.
-
-Boundary:
-1. Implement as you see fit for now. This feature can be finalized later.
-
-Do you think you can implement a complete and comprehensive solution from that? Please skip documentation and installation as I will fine tune this for development first. Please just provide a single python script as output. The original framework code I have is below:
-
-```python
-#!/usr/bin/python
-"""
-HashiCorp Tool wxPython prototype.
-This is for testing wx widgets on various platforms.
-It does not yet have actual client interaction.
-
-John Boero - boeroboy@gmail.com
-"""
-import wx.adv
-import wx
-
-def create_ns(menu, label, func):
-    v = wx.Menu()
-    ns = wx.Menu()
-    v.Append(wx.ID_ANY, 'default')
-    v.Append(wx.ID_ANY, 'root')
-    v.Append(wx.ID_ANY, 'private')
-    menu.AppendSeparator()
-    v.Append(wx.ID_ANY, 'Manage Namespaces...')
-
-    item = wx.MenuItem(menu, -1, label)
-    menu.Append(wx.ID_ANY, label, v)
-    menu.Bind(wx.EVT_MENU, func, id=item.GetId())
-
-def create_menu_item(menu, label, func, icon=None):
-    item = wx.MenuItem(menu, -1, label)
-    if icon:
-        img = wx.Image(icon, wx.BITMAP_TYPE_ANY).Scale(32,32)
-        item.SetBitmap(wx.Bitmap(img))
-    menu.Bind(wx.EVT_MENU, func, id=item.GetId())
-    menu.Append(item)
-    return item
-
-class TaskBarIcon(wx.adv.TaskBarIcon):
-    def __init__(self, frame):
-        self.frame = frame
-        super(TaskBarIcon, self).__init__()
-        self.set_icon('img/hashicon.png')
-        self.Bind(wx.adv.EVT_TASKBAR_LEFT_DOWN, self.on_left_down)
-
-    def CreatePopupMenu(self):
-        menu = wx.Menu()
-        create_menu_item(menu, 'Nomad',     self.on_nomad,    'img/nomad.png')
-        create_menu_item(menu, 'Consul',    self.on_consul,   'img/consul.png')
-        create_menu_item(menu, 'Vault',     self.on_vault,    'img/vault.png')
-        create_menu_item(menu, 'Terraform', self.on_tf,       'img/tf.png')
-        create_menu_item(menu, 'Waypoint',  self.on_waypoint, 'img/waypoint.png')
-        create_menu_item(menu, 'Boundary',  self.on_boundary, 'img/boundary.png')
-        menu.AppendSeparator()
-        create_ns(menu, "HashiCorp Namespace", self.on_hello)
-        menu.AppendSeparator()
-        create_menu_item(menu, 'Exit', self.on_exit)
-        return menu
-
-    def set_icon(self, path):
-        icon = wx.Icon(path)
-        self.SetIcon(icon, "HashiCorp Manager")
-
-    def on_left_down(self, event):      
-        print ('Tray icon was left-clicked.')
-
-    def on_nomad(self, event):
-        print ('TODO')
-
-    def on_consul(self, event):
-        print ('TODO')
-
-    def on_vault(self, event):
-        print ('TODO')
-
-    def on_tf(self, event):
-        print ('TODO')
-
-    def on_waypoint(self, event):
-        print ('TODO')
-
-    def on_boundary(self, event):
-        print ('TODO')
-
-    def on_hello(self, event):
-        print ('Hello, world!')
-
-    def on_exit(self, event):
-        wx.CallAfter(self.Destroy)
-        self.frame.Close()
-
-class App(wx.App):
-    def OnInit(self):
-        frame=wx.Frame(None)
-        self.SetTopWindow(frame)
-        TaskBarIcon(frame)
-        return True
-
-def main():
-    app = App(False)
-    app.MainLoop()
-
-
-if __name__ == '__main__':
-    main()
-    
-```
+Do you think you can finish a complete and comprehensive solution from that? Please skip documentation and installation as I will fine tune this for development first.
