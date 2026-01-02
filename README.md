@@ -31,6 +31,8 @@ OpenTongchi is a Qt6-based system tray widget that provides unified access to op
 - **Background Processes** — Execute long-running operations (plan, apply, build) with progress tracking
 - **Automatic Renewal** — Configurable background token and lease renewal
 - **System Notifications** — Desktop notifications for process completion, failures, and status changes
+[Screencast_20260102_173355.webm](https://github.com/user-attachments/assets/b49d790a-2ff1-4e6a-a906-5f289b6eab58)
+
 
 ### 🔐 OpenBao (Vault)
 
