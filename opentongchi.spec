@@ -78,12 +78,12 @@ chmod 755 %{buildroot}%{_bindir}/%{name}
 
 # Install icon (multiple sizes for better scaling)
 for size in 256 128 64 48; do
-    install -D -m 644 img/opentongchi.png \
-        %{buildroot}%{_datadir}/icons/hicolor/${size}x${size}/apps/%{name}.png
+    install -D -m 644 img/opentongchi.webp \
+        %{buildroot}%{_datadir}/icons/hicolor/${size}x${size}/apps/%{name}.webp
 done
 
 # Also install to pixmaps for legacy support
-install -D -m 644 img/opentongchi.png %{buildroot}%{_datadir}/pixmaps/%{name}.png
+install -D -m 644 img/opentongchi.webp %{buildroot}%{_datadir}/pixmaps/%{name}.webp
 
 # Install desktop file
 mkdir -p %{buildroot}%{_datadir}/applications
@@ -146,8 +146,8 @@ fi
 %{_bindir}/%{name}
 %{python3_sitelib}/%{pypi_name}/
 %{_datadir}/applications/%{name}.desktop
-%{_datadir}/icons/hicolor/*/apps/%{name}.png
-%{_datadir}/pixmaps/%{name}.png
+%{_datadir}/icons/hicolor/*/apps/%{name}.webp
+%{_datadir}/pixmaps/%{name}.webp
 %config(noreplace) %{_sysconfdir}/xdg/autostart/%{name}.desktop
 
 %changelog
