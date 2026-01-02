@@ -1,0 +1,8 @@
+# OpenTongchi Requirements
+# Python 3.10+ required
+
+# Qt6 for Python
+PySide6>=6.5.0
+
+# Note: All HTTP operations use Python's built-in urllib to avoid
+# external dependencies and HVAC-related issues.
