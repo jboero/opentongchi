@@ -11,7 +11,7 @@
 Name:           opentongchi
 Version:        0.2.0
 Release:        1%{?dist}
-Summary:        System Tray Manager for Open Source HashiCorp Infrastructure Tools
+Summary:        System Tray Manager for Open Source Infrastructure Tools
 
 License:        MPL-2.0
 URL:            https://github.com/%{github_owner}/%{github_repo}
@@ -19,7 +19,9 @@ Source0:        %{url}/archive/refs/tags/v%{version}.tar.gz#/%{name}-%{version}.
 
 BuildArch:      noarch
 BuildRequires:  python3-devel
+BuildRequires:  python3-pip
 BuildRequires:  python3-setuptools
+BuildRequires:  python3-wheel
 BuildRequires:  desktop-file-utils
 
 Requires:       python3 >= 3.10
@@ -49,15 +51,14 @@ Features:
 %autosetup -n %{github_repo}-%{version}
 
 %build
-%py3_build
+%{python3} setup.py build
 
 %install
-%py3_install
-
-# Install application module
+# Install Python package manually (avoiding deprecated macros)
 mkdir -p %{buildroot}%{python3_sitelib}/%{pypi_name}
 cp -r app %{buildroot}%{python3_sitelib}/%{pypi_name}/
 cp main.py %{buildroot}%{python3_sitelib}/%{pypi_name}/
+touch %{buildroot}%{python3_sitelib}/%{pypi_name}/__init__.py
 
 # Create wrapper script
 mkdir -p %{buildroot}%{_bindir}
@@ -77,12 +78,12 @@ chmod 755 %{buildroot}%{_bindir}/%{name}
 
 # Install icon (multiple sizes for better scaling)
 for size in 256 128 64 48; do
-    install -D -m 644 img/opentongchi.webp \
-        %{buildroot}%{_datadir}/icons/hicolor/${size}x${size}/apps/%{name}.webp
+    install -D -m 644 img/opentongchi.png \
+        %{buildroot}%{_datadir}/icons/hicolor/${size}x${size}/apps/%{name}.png
 done
 
 # Also install to pixmaps for legacy support
-install -D -m 644 img/opentongchi.webp %{buildroot}%{_datadir}/pixmaps/%{name}.webp
+install -D -m 644 img/opentongchi.png %{buildroot}%{_datadir}/pixmaps/%{name}.png
 
 # Install desktop file
 mkdir -p %{buildroot}%{_datadir}/applications
@@ -122,10 +123,10 @@ AUTOSTART
 
 %check
 # Basic syntax check
-python3 -m py_compile %{buildroot}%{python3_sitelib}/%{pypi_name}/main.py
-python3 -m py_compile %{buildroot}%{python3_sitelib}/%{pypi_name}/app/*.py
-python3 -m py_compile %{buildroot}%{python3_sitelib}/%{pypi_name}/app/clients/*.py
-python3 -m py_compile %{buildroot}%{python3_sitelib}/%{pypi_name}/app/menus/*.py
+%{python3} -m py_compile %{buildroot}%{python3_sitelib}/%{pypi_name}/main.py
+%{python3} -m py_compile %{buildroot}%{python3_sitelib}/%{pypi_name}/app/*.py
+%{python3} -m py_compile %{buildroot}%{python3_sitelib}/%{pypi_name}/app/clients/*.py
+%{python3} -m py_compile %{buildroot}%{python3_sitelib}/%{pypi_name}/app/menus/*.py
 
 %post
 /bin/touch --no-create %{_datadir}/icons/hicolor &>/dev/null || :
@@ -145,12 +146,12 @@ fi
 %{_bindir}/%{name}
 %{python3_sitelib}/%{pypi_name}/
 %{_datadir}/applications/%{name}.desktop
-%{_datadir}/icons/hicolor/*/apps/%{name}.webp
-%{_datadir}/pixmaps/%{name}.webp
+%{_datadir}/icons/hicolor/*/apps/%{name}.png
+%{_datadir}/pixmaps/%{name}.png
 %config(noreplace) %{_sysconfdir}/xdg/autostart/%{name}.desktop
 
 %changelog
-* Thu Jan 02 2025 John Googer <jboero@gmail.com> - 0.2.0-1
+* Thu Jan 02 2025 John Boero <jboero@gmail.com> - 0.2.0-1
 - Initial package release
 - Support for OpenBao (Vault) secrets and auth management
 - Support for Consul services and KV store
