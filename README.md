@@ -19,7 +19,7 @@
 
 ---
 
-OpenTongchi is a Qt6-based system tray widget that provides unified access to open source infrastructure tools. Browse secrets, monitor services, manage jobs, and execute infrastructure operations—all from your system tray.
+OpenTongchi is a Qt6-based system tray widget that provides unified access to open source infrastructure tools. Browse secrets, monitor services, manage jobs, and execute infrastructure operations—all from your system tray using ~200KB of Python + QT6 instead of bulky Go binaries and chonky Electron apps.
 
 ## Features
 
