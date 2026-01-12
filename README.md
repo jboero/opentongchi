@@ -113,7 +113,7 @@ python main.py
 
 ```bash
 # Enable the COPR repository
-sudo dnf copr enable jboero/opentongchi
+sudo dnf copr enable boeroboy/hashicorp
 
 # Install
 sudo dnf install opentongchi
