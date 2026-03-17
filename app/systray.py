@@ -103,10 +103,10 @@ class OpenTongchiTray(QObject):
         """Find the application icon."""
         # Check relative paths
         possible_paths = [
-            "../img/opentongchi.png",
-            "img/opentongchi.png",
-            os.path.expanduser("~/.local/share/opentongchi/opentongchi.png"),
-            "/usr/share/icons/opentongchi.png",
+            "../img/opentongchi.webp",
+            "img/opentongchi.webp",
+            os.path.expanduser("~/.local/share/opentongchi/opentongchi.webp"),
+            "/usr/share/icons/hicolor/64x64/apps/opentongchi.webp",
         ]
         
         for path in possible_paths:
