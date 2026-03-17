@@ -13,7 +13,7 @@ from PySide6.QtGui import QIcon, QAction
 from PySide6.QtCore import QObject, Signal, Slot, QTimer
 
 from app.settings import SettingsManager
-from app.process_manager import ProcessManager, TokenRenewalManager, ProcessStatus
+from app.process_manager import ProcessManager, TokenRenewalManager, ProcessStatus, SoundManager
 from app.dialogs import SettingsDialog
 from app.menus import (
     OpenBaoMenuBuilder,
@@ -37,6 +37,9 @@ class OpenTongchiTray(QObject):
         self.process_manager = ProcessManager(self)
         self.process_manager.process_finished.connect(self._on_process_finished)
         self.process_manager.process_failed.connect(self._on_process_failed)
+        
+        # Initialize sound manager
+        self.sound_manager = SoundManager(settings, self)
         
         # Initialize token renewal manager
         self.renewal_manager = TokenRenewalManager(
@@ -100,10 +103,10 @@ class OpenTongchiTray(QObject):
         """Find the application icon."""
         # Check relative paths
         possible_paths = [
-            "../img/opentongchi.webp",
-            "img/opentongchi.webp",
-            os.path.expanduser("~/.local/share/opentongchi/opentongchi.webp"),
-            "/usr/share/icons/opentongchi.webp",
+            "../img/opentongchi.png",
+            "img/opentongchi.png",
+            os.path.expanduser("~/.local/share/opentongchi/opentongchi.png"),
+            "/usr/share/icons/opentongchi.png",
         ]
         
         for path in possible_paths:
@@ -116,9 +119,9 @@ class OpenTongchiTray(QObject):
         """Create the main context menu."""
         self.menu = QMenu()
         
-        # Title
+        # Title - now clickable and shows About
         title = self.menu.addAction("🏠 OpenTongchi")
-        title.setEnabled(False)
+        title.triggered.connect(self._show_about)
         self.menu.addSeparator()
         
         # Running processes section
@@ -146,10 +149,6 @@ class OpenTongchiTray(QObject):
         refresh_action.triggered.connect(self._refresh_all)
         
         self.menu.addSeparator()
-        
-        # About
-        about_action = self.menu.addAction("ℹ️ About")
-        about_action.triggered.connect(self._show_about)
         
         # Quit
         quit_action = self.menu.addAction("🚪 Quit")
@@ -241,28 +240,35 @@ class OpenTongchiTray(QObject):
     
     def _on_tray_activated(self, reason: QSystemTrayIcon.ActivationReason):
         """Handle tray icon activation."""
-        if reason in (QSystemTrayIcon.ActivationReason.Trigger,
-                      QSystemTrayIcon.ActivationReason.Context):
-            # Show menu on left or right click
-            self.menu.popup(self.tray.geometry().center())
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            # Left click - open settings dialog
+            self._show_settings()
     
     def _on_process_finished(self, process_id: str):
         """Handle process completion."""
         process = self.process_manager.get_process(process_id)
-        if process and self.settings.global_settings.show_notifications:
-            self._show_notification(
-                "Process Complete",
-                f"{process.name} completed successfully"
-            )
+        if process:
+            # Play success sound
+            self.sound_manager.play_success()
+            
+            if self.settings.global_settings.show_notifications:
+                self._show_notification(
+                    "Process Complete",
+                    f"{process.name} completed successfully"
+                )
     
     def _on_process_failed(self, process_id: str, error: str):
         """Handle process failure."""
         process = self.process_manager.get_process(process_id)
-        if process and self.settings.global_settings.show_notifications:
-            self._show_notification(
-                "Process Failed",
-                f"{process.name}: {error}"
-            )
+        if process:
+            # Play error sound
+            self.sound_manager.play_error()
+            
+            if self.settings.global_settings.show_notifications:
+                self._show_notification(
+                    "Process Failed",
+                    f"{process.name}: {error}"
+                )
     
     def _on_nomad_job_changed(self, job_id: str, status: str):
         """Handle Nomad job status change."""
@@ -295,9 +301,20 @@ class OpenTongchiTray(QObject):
     
     def _show_settings(self):
         """Show the settings dialog."""
-        dialog = SettingsDialog(self.settings)
-        dialog.settings_saved.connect(self._on_settings_saved)
-        dialog.exec()
+        # Check if dialog already exists and is visible
+        if hasattr(self, '_settings_dialog') and self._settings_dialog is not None:
+            if self._settings_dialog.isVisible():
+                # Bring existing dialog to front
+                self._settings_dialog.raise_()
+                self._settings_dialog.activateWindow()
+                return
+        
+        # Create new modal dialog
+        self._settings_dialog = SettingsDialog(self.settings)
+        self._settings_dialog.setModal(True)
+        self._settings_dialog.settings_saved.connect(self._on_settings_saved)
+        self._settings_dialog.exec()
+        self._settings_dialog = None
     
     def _on_settings_saved(self):
         """Handle settings being saved."""
@@ -316,6 +333,7 @@ class OpenTongchiTray(QObject):
         self.nomad_menu.refresh_client()
         self.boundary_menu.refresh_client()
         self.opentofu_menu.refresh_clients()
+        self.packer_menu.refresh_client()
         
         # Rebuild menu
         self._create_menu()
@@ -324,12 +342,13 @@ class OpenTongchiTray(QObject):
     
     def _show_about(self):
         """Show about dialog."""
+        from app import __version__
         QMessageBox.about(
             None,
             "About OpenTongchi",
-            """<h3>OpenTongchi</h3>
+            f"""<h3>OpenTongchi (汤匙)</h3>
             <p>System Tray Manager for Open Source Infrastructure Tools</p>
-            <p>Version 0.2.0</p>
+            <p>Version {__version__}</p>
             <p>Manage OpenBao, Consul, Nomad, Boundary, OpenTofu, and Packer 
             from your system tray.</p>
             <p>Licensed under MPL-2.0</p>
@@ -343,8 +362,6 @@ class OpenTongchiTray(QObject):
                 <li>🏗️ OpenTofu infrastructure management</li>
                 <li>📦 Packer image building</li>
             </ul>
-            Early stage software - use at your own risk!
-            Issues and feedback welcome on <h ref="https://github.com/jboero/opentongchi">GitHub</a>
             """
         )
     

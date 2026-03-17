@@ -491,6 +491,139 @@ class HCPTerraformClient(BaseHTTPClient):
         """Delete a variable."""
         return self.delete(f'/api/v2/vars/{variable_id}')
     
+    # ============ Variable Sets ============
+    
+    def list_variable_sets(self, org_name: str = None) -> APIResponse:
+        """List variable sets for an organization."""
+        org = org_name or self.org
+        return self.get(f'/api/v2/organizations/{org}/varsets')
+    
+    def get_variable_set(self, varset_id: str) -> APIResponse:
+        """Get variable set details."""
+        return self.get(f'/api/v2/varsets/{varset_id}')
+    
+    def create_variable_set(self, name: str, org_name: str = None,
+                            description: str = None,
+                            global_set: bool = False) -> APIResponse:
+        """Create a variable set."""
+        org = org_name or self.org
+        data = {
+            'data': {
+                'type': 'varsets',
+                'attributes': {
+                    'name': name,
+                    'global': global_set
+                }
+            }
+        }
+        if description:
+            data['data']['attributes']['description'] = description
+        return self.post(f'/api/v2/organizations/{org}/varsets', data)
+    
+    def update_variable_set(self, varset_id: str, name: str = None,
+                            description: str = None,
+                            global_set: bool = None) -> APIResponse:
+        """Update a variable set."""
+        data = {
+            'data': {
+                'type': 'varsets',
+                'attributes': {}
+            }
+        }
+        if name is not None:
+            data['data']['attributes']['name'] = name
+        if description is not None:
+            data['data']['attributes']['description'] = description
+        if global_set is not None:
+            data['data']['attributes']['global'] = global_set
+        return self.patch(f'/api/v2/varsets/{varset_id}', data)
+    
+    def delete_variable_set(self, varset_id: str) -> APIResponse:
+        """Delete a variable set."""
+        return self.delete(f'/api/v2/varsets/{varset_id}')
+    
+    def list_varset_variables(self, varset_id: str) -> APIResponse:
+        """List variables in a variable set."""
+        return self.get(f'/api/v2/varsets/{varset_id}/relationships/vars')
+    
+    def create_varset_variable(self, varset_id: str, key: str, value: str,
+                               category: str = 'terraform',
+                               sensitive: bool = False,
+                               hcl: bool = False) -> APIResponse:
+        """Create a variable in a variable set."""
+        data = {
+            'data': {
+                'type': 'vars',
+                'attributes': {
+                    'key': key,
+                    'value': value,
+                    'category': category,
+                    'sensitive': sensitive,
+                    'hcl': hcl
+                }
+            }
+        }
+        return self.post(f'/api/v2/varsets/{varset_id}/relationships/vars', data)
+    
+    def list_varset_workspaces(self, varset_id: str) -> APIResponse:
+        """List workspaces attached to a variable set."""
+        return self.get(f'/api/v2/varsets/{varset_id}/relationships/workspaces')
+    
+    def apply_varset_to_workspaces(self, varset_id: str, 
+                                    workspace_ids: list) -> APIResponse:
+        """Apply variable set to workspaces."""
+        data = {
+            'data': [{'type': 'workspaces', 'id': ws_id} for ws_id in workspace_ids]
+        }
+        return self.post(f'/api/v2/varsets/{varset_id}/relationships/workspaces', data)
+    
+    def remove_varset_from_workspaces(self, varset_id: str,
+                                       workspace_ids: list) -> APIResponse:
+        """Remove variable set from workspaces."""
+        data = {
+            'data': [{'type': 'workspaces', 'id': ws_id} for ws_id in workspace_ids]
+        }
+        return self.delete_with_body(f'/api/v2/varsets/{varset_id}/relationships/workspaces', data)
+    
+    def delete_with_body(self, path: str, data: Any = None) -> APIResponse:
+        """DELETE request with body (for relationship removals)."""
+        return self._request('DELETE', path, data)
+    
+    # ============ Organization Settings ============
+    
+    def update_organization(self, org_name: str = None,
+                           email: str = None,
+                           collaborator_auth_policy: str = None) -> APIResponse:
+        """Update organization settings."""
+        org = org_name or self.org
+        data = {
+            'data': {
+                'type': 'organizations',
+                'attributes': {}
+            }
+        }
+        if email is not None:
+            data['data']['attributes']['email'] = email
+        if collaborator_auth_policy is not None:
+            data['data']['attributes']['collaborator-auth-policy'] = collaborator_auth_policy
+        return self.patch(f'/api/v2/organizations/{org}', data)
+    
+    def get_organization_entitlements(self, org_name: str = None) -> APIResponse:
+        """Get organization entitlements/feature flags."""
+        org = org_name or self.org
+        return self.get(f'/api/v2/organizations/{org}/entitlement-set')
+    
+    # ============ Teams (for org settings) ============
+    
+    def list_teams(self, org_name: str = None) -> APIResponse:
+        """List teams in organization."""
+        org = org_name or self.org
+        return self.get(f'/api/v2/organizations/{org}/teams')
+    
+    def get_team(self, team_id: str) -> APIResponse:
+        """Get team details."""
+        return self.get(f'/api/v2/teams/{team_id}')
+    
     # ============ Helpers ============
     
     def get_workspace_status_emoji(self, workspace: Dict) -> str:

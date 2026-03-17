@@ -206,17 +206,254 @@ class OpenBaoClient(BaseHTTPClient):
         """List all auth methods."""
         return self.get('/v1/sys/auth')
     
+    def read_auth_method(self, path: str) -> APIResponse:
+        """Read auth method configuration."""
+        path = path.rstrip('/')
+        return self.get(f'/v1/sys/auth/{path}')
+    
     def enable_auth_method(self, path: str, method_type: str,
-                           options: Dict = None) -> APIResponse:
+                           description: str = None,
+                           options: Dict = None,
+                           config: Dict = None) -> APIResponse:
         """Enable an auth method."""
         data = {'type': method_type}
+        if description:
+            data['description'] = description
         if options:
             data['options'] = options
+        if config:
+            data['config'] = config
         return self.post(f'/v1/sys/auth/{path}', data)
+    
+    def tune_auth_method(self, path: str, default_lease_ttl: str = None,
+                         max_lease_ttl: str = None, description: str = None,
+                         listing_visibility: str = None,
+                         token_type: str = None) -> APIResponse:
+        """Tune an auth method's configuration."""
+        path = path.rstrip('/')
+        data = {}
+        if default_lease_ttl:
+            data['default_lease_ttl'] = default_lease_ttl
+        if max_lease_ttl:
+            data['max_lease_ttl'] = max_lease_ttl
+        if description:
+            data['description'] = description
+        if listing_visibility:
+            data['listing_visibility'] = listing_visibility
+        if token_type:
+            data['token_type'] = token_type
+        return self.post(f'/v1/sys/auth/{path}/tune', data)
     
     def disable_auth_method(self, path: str) -> APIResponse:
         """Disable an auth method."""
+        path = path.rstrip('/')
         return self.delete(f'/v1/sys/auth/{path}')
+    
+    # ============ Userpass Auth ============
+    
+    def userpass_list_users(self, mount: str = "userpass") -> APIResponse:
+        """List all userpass users."""
+        return self.list(f'/v1/auth/{mount}/users')
+    
+    def userpass_read_user(self, mount: str, username: str) -> APIResponse:
+        """Read a userpass user."""
+        return self.get(f'/v1/auth/{mount}/users/{username}')
+    
+    def userpass_create_user(self, mount: str, username: str, password: str,
+                              policies: List[str] = None, ttl: str = None,
+                              max_ttl: str = None) -> APIResponse:
+        """Create or update a userpass user."""
+        data = {'password': password}
+        if policies:
+            data['policies'] = policies
+        if ttl:
+            data['ttl'] = ttl
+        if max_ttl:
+            data['max_ttl'] = max_ttl
+        return self.post(f'/v1/auth/{mount}/users/{username}', data)
+    
+    def userpass_update_user(self, mount: str, username: str,
+                              policies: List[str] = None, ttl: str = None,
+                              max_ttl: str = None) -> APIResponse:
+        """Update a userpass user (without changing password)."""
+        data = {}
+        if policies is not None:
+            data['policies'] = policies
+        if ttl:
+            data['ttl'] = ttl
+        if max_ttl:
+            data['max_ttl'] = max_ttl
+        return self.post(f'/v1/auth/{mount}/users/{username}', data)
+    
+    def userpass_update_password(self, mount: str, username: str, 
+                                  password: str) -> APIResponse:
+        """Update a user's password."""
+        return self.post(f'/v1/auth/{mount}/users/{username}/password', 
+                        {'password': password})
+    
+    def userpass_delete_user(self, mount: str, username: str) -> APIResponse:
+        """Delete a userpass user."""
+        return self.delete(f'/v1/auth/{mount}/users/{username}')
+    
+    # ============ AppRole Auth ============
+    
+    def approle_list_roles(self, mount: str = "approle") -> APIResponse:
+        """List all AppRole roles."""
+        return self.list(f'/v1/auth/{mount}/role')
+    
+    def approle_read_role(self, mount: str, role_name: str) -> APIResponse:
+        """Read an AppRole role."""
+        return self.get(f'/v1/auth/{mount}/role/{role_name}')
+    
+    def approle_create_role(self, mount: str, role_name: str,
+                             bind_secret_id: bool = True,
+                             secret_id_bound_cidrs: List[str] = None,
+                             token_policies: List[str] = None,
+                             token_ttl: str = None,
+                             token_max_ttl: str = None) -> APIResponse:
+        """Create or update an AppRole role."""
+        data = {'bind_secret_id': bind_secret_id}
+        if secret_id_bound_cidrs:
+            data['secret_id_bound_cidrs'] = secret_id_bound_cidrs
+        if token_policies:
+            data['token_policies'] = token_policies
+        if token_ttl:
+            data['token_ttl'] = token_ttl
+        if token_max_ttl:
+            data['token_max_ttl'] = token_max_ttl
+        return self.post(f'/v1/auth/{mount}/role/{role_name}', data)
+    
+    def approle_delete_role(self, mount: str, role_name: str) -> APIResponse:
+        """Delete an AppRole role."""
+        return self.delete(f'/v1/auth/{mount}/role/{role_name}')
+    
+    def approle_read_role_id(self, mount: str, role_name: str) -> APIResponse:
+        """Read the RoleID for an AppRole."""
+        return self.get(f'/v1/auth/{mount}/role/{role_name}/role-id')
+    
+    def approle_generate_secret_id(self, mount: str, role_name: str,
+                                    metadata: Dict = None,
+                                    cidr_list: List[str] = None,
+                                    ttl: str = None) -> APIResponse:
+        """Generate a new SecretID for an AppRole."""
+        data = {}
+        if metadata:
+            data['metadata'] = json.dumps(metadata)
+        if cidr_list:
+            data['cidr_list'] = cidr_list
+        if ttl:
+            data['ttl'] = ttl
+        return self.post(f'/v1/auth/{mount}/role/{role_name}/secret-id', data)
+    
+    def approle_list_secret_ids(self, mount: str, role_name: str) -> APIResponse:
+        """List SecretID accessors for an AppRole."""
+        return self.list(f'/v1/auth/{mount}/role/{role_name}/secret-id')
+    
+    def approle_destroy_secret_id(self, mount: str, role_name: str,
+                                   secret_id: str) -> APIResponse:
+        """Destroy a SecretID."""
+        return self.post(f'/v1/auth/{mount}/role/{role_name}/secret-id/destroy',
+                        {'secret_id': secret_id})
+    
+    # ============ Token Auth ============
+    
+    def token_list_roles(self) -> APIResponse:
+        """List token roles."""
+        return self.list('/v1/auth/token/roles')
+    
+    def token_read_role(self, role_name: str) -> APIResponse:
+        """Read a token role."""
+        return self.get(f'/v1/auth/token/roles/{role_name}')
+    
+    def token_create_role(self, role_name: str, allowed_policies: List[str] = None,
+                          orphan: bool = False, renewable: bool = True,
+                          token_period: str = None, token_explicit_max_ttl: str = None,
+                          path_suffix: str = None) -> APIResponse:
+        """Create or update a token role."""
+        data = {'orphan': orphan, 'renewable': renewable}
+        if allowed_policies:
+            data['allowed_policies'] = allowed_policies
+        if token_period:
+            data['token_period'] = token_period
+        if token_explicit_max_ttl:
+            data['token_explicit_max_ttl'] = token_explicit_max_ttl
+        if path_suffix:
+            data['path_suffix'] = path_suffix
+        return self.post(f'/v1/auth/token/roles/{role_name}', data)
+    
+    def token_delete_role(self, role_name: str) -> APIResponse:
+        """Delete a token role."""
+        return self.delete(f'/v1/auth/token/roles/{role_name}')
+    
+    # ============ LDAP Auth ============
+    
+    def ldap_read_config(self, mount: str = "ldap") -> APIResponse:
+        """Read LDAP configuration."""
+        return self.get(f'/v1/auth/{mount}/config')
+    
+    def ldap_write_config(self, mount: str, url: str, userdn: str = None,
+                          groupdn: str = None, binddn: str = None,
+                          bindpass: str = None, userattr: str = None,
+                          groupattr: str = None, upndomain: str = None,
+                          insecure_tls: bool = False) -> APIResponse:
+        """Configure LDAP auth."""
+        data = {'url': url, 'insecure_tls': insecure_tls}
+        if userdn:
+            data['userdn'] = userdn
+        if groupdn:
+            data['groupdn'] = groupdn
+        if binddn:
+            data['binddn'] = binddn
+        if bindpass:
+            data['bindpass'] = bindpass
+        if userattr:
+            data['userattr'] = userattr
+        if groupattr:
+            data['groupattr'] = groupattr
+        if upndomain:
+            data['upndomain'] = upndomain
+        return self.post(f'/v1/auth/{mount}/config', data)
+    
+    def ldap_list_groups(self, mount: str = "ldap") -> APIResponse:
+        """List LDAP groups."""
+        return self.list(f'/v1/auth/{mount}/groups')
+    
+    def ldap_read_group(self, mount: str, name: str) -> APIResponse:
+        """Read an LDAP group."""
+        return self.get(f'/v1/auth/{mount}/groups/{name}')
+    
+    def ldap_write_group(self, mount: str, name: str, 
+                         policies: List[str]) -> APIResponse:
+        """Create or update an LDAP group."""
+        return self.post(f'/v1/auth/{mount}/groups/{name}', 
+                        {'policies': policies})
+    
+    def ldap_delete_group(self, mount: str, name: str) -> APIResponse:
+        """Delete an LDAP group."""
+        return self.delete(f'/v1/auth/{mount}/groups/{name}')
+    
+    def ldap_list_users(self, mount: str = "ldap") -> APIResponse:
+        """List LDAP users with policies."""
+        return self.list(f'/v1/auth/{mount}/users')
+    
+    def ldap_read_user(self, mount: str, username: str) -> APIResponse:
+        """Read an LDAP user's policies."""
+        return self.get(f'/v1/auth/{mount}/users/{username}')
+    
+    def ldap_write_user(self, mount: str, username: str,
+                        policies: List[str] = None,
+                        groups: List[str] = None) -> APIResponse:
+        """Create or update an LDAP user's policies."""
+        data = {}
+        if policies:
+            data['policies'] = policies
+        if groups:
+            data['groups'] = groups
+        return self.post(f'/v1/auth/{mount}/users/{username}', data)
+    
+    def ldap_delete_user(self, mount: str, username: str) -> APIResponse:
+        """Delete an LDAP user."""
+        return self.delete(f'/v1/auth/{mount}/users/{username}')
     
     # ============ Policies ============
     
@@ -235,6 +472,35 @@ class OpenBaoClient(BaseHTTPClient):
     def delete_policy(self, name: str) -> APIResponse:
         """Delete a policy."""
         return self.delete(f'/v1/sys/policies/acl/{name}')
+    
+    # ============ Namespaces ============
+    
+    def list_namespaces(self) -> APIResponse:
+        """List all namespaces."""
+        return self.list('/v1/sys/namespaces')
+    
+    def read_namespace(self, path: str) -> APIResponse:
+        """Read namespace details."""
+        return self.get(f'/v1/sys/namespaces/{path}')
+    
+    def create_namespace(self, path: str, custom_metadata: Dict = None) -> APIResponse:
+        """Create a new namespace."""
+        data = {}
+        if custom_metadata:
+            data['custom_metadata'] = custom_metadata
+        return self.post(f'/v1/sys/namespaces/{path}', data if data else None)
+    
+    def delete_namespace(self, path: str) -> APIResponse:
+        """Delete a namespace."""
+        return self.delete(f'/v1/sys/namespaces/{path}')
+    
+    def lock_namespace(self, path: str) -> APIResponse:
+        """Lock a namespace (API lock)."""
+        return self.post(f'/v1/sys/namespaces/{path}/lock')
+    
+    def unlock_namespace(self, path: str, unlock_key: str) -> APIResponse:
+        """Unlock a namespace."""
+        return self.post(f'/v1/sys/namespaces/{path}/unlock', {'unlock_key': unlock_key})
     
     # ============ Audit Devices ============
     
@@ -316,6 +582,483 @@ class OpenBaoClient(BaseHTTPClient):
             'algorithm': algorithm,
             'format': format
         })
+    
+    # ============ Transit Engine ============
+    
+    def transit_list_keys(self, mount: str = "transit") -> APIResponse:
+        """List transit keys."""
+        return self.list(f'/v1/{mount}/keys')
+    
+    def transit_read_key(self, mount: str, key_name: str) -> APIResponse:
+        """Read transit key configuration."""
+        return self.get(f'/v1/{mount}/keys/{key_name}')
+    
+    def transit_create_key(self, mount: str, key_name: str, 
+                           key_type: str = "aes256-gcm96",
+                           exportable: bool = False,
+                           allow_plaintext_backup: bool = False) -> APIResponse:
+        """Create a new transit key."""
+        data = {
+            'type': key_type,
+            'exportable': exportable,
+            'allow_plaintext_backup': allow_plaintext_backup
+        }
+        return self.post(f'/v1/{mount}/keys/{key_name}', data)
+    
+    def transit_delete_key(self, mount: str, key_name: str) -> APIResponse:
+        """Delete a transit key (must be configured as deletable first)."""
+        return self.delete(f'/v1/{mount}/keys/{key_name}')
+    
+    def transit_update_key_config(self, mount: str, key_name: str,
+                                   deletion_allowed: bool = None,
+                                   min_decryption_version: int = None,
+                                   min_encryption_version: int = None) -> APIResponse:
+        """Update transit key configuration."""
+        data = {}
+        if deletion_allowed is not None:
+            data['deletion_allowed'] = deletion_allowed
+        if min_decryption_version is not None:
+            data['min_decryption_version'] = min_decryption_version
+        if min_encryption_version is not None:
+            data['min_encryption_version'] = min_encryption_version
+        return self.post(f'/v1/{mount}/keys/{key_name}/config', data)
+    
+    def transit_rotate_key(self, mount: str, key_name: str) -> APIResponse:
+        """Rotate a transit key."""
+        return self.post(f'/v1/{mount}/keys/{key_name}/rotate')
+    
+    def transit_encrypt(self, mount: str, key_name: str, plaintext: str,
+                        context: str = None, key_version: int = None) -> APIResponse:
+        """Encrypt data using a transit key. Plaintext must be base64 encoded."""
+        data = {'plaintext': plaintext}
+        if context:
+            data['context'] = context
+        if key_version:
+            data['key_version'] = key_version
+        return self.post(f'/v1/{mount}/encrypt/{key_name}', data)
+    
+    def transit_decrypt(self, mount: str, key_name: str, ciphertext: str,
+                        context: str = None) -> APIResponse:
+        """Decrypt data using a transit key."""
+        data = {'ciphertext': ciphertext}
+        if context:
+            data['context'] = context
+        return self.post(f'/v1/{mount}/decrypt/{key_name}', data)
+    
+    def transit_rewrap(self, mount: str, key_name: str, ciphertext: str,
+                       context: str = None, key_version: int = None) -> APIResponse:
+        """Rewrap ciphertext with a new key version."""
+        data = {'ciphertext': ciphertext}
+        if context:
+            data['context'] = context
+        if key_version:
+            data['key_version'] = key_version
+        return self.post(f'/v1/{mount}/rewrap/{key_name}', data)
+    
+    def transit_sign(self, mount: str, key_name: str, input_data: str,
+                     hash_algorithm: str = "sha2-256",
+                     signature_algorithm: str = None,
+                     prehashed: bool = False) -> APIResponse:
+        """Sign data using a transit key."""
+        data = {
+            'input': input_data,
+            'hash_algorithm': hash_algorithm,
+            'prehashed': prehashed
+        }
+        if signature_algorithm:
+            data['signature_algorithm'] = signature_algorithm
+        return self.post(f'/v1/{mount}/sign/{key_name}', data)
+    
+    def transit_verify(self, mount: str, key_name: str, input_data: str,
+                       signature: str, hash_algorithm: str = "sha2-256",
+                       prehashed: bool = False) -> APIResponse:
+        """Verify a signature using a transit key."""
+        data = {
+            'input': input_data,
+            'signature': signature,
+            'hash_algorithm': hash_algorithm,
+            'prehashed': prehashed
+        }
+        return self.post(f'/v1/{mount}/verify/{key_name}', data)
+    
+    def transit_generate_hmac(self, mount: str, key_name: str, input_data: str,
+                              algorithm: str = "sha2-256") -> APIResponse:
+        """Generate HMAC for data."""
+        return self.post(f'/v1/{mount}/hmac/{key_name}', {
+            'input': input_data,
+            'algorithm': algorithm
+        })
+    
+    def transit_generate_data_key(self, mount: str, key_name: str,
+                                   key_type: str = "plaintext",
+                                   bits: int = 256,
+                                   context: str = None) -> APIResponse:
+        """Generate a data key (wrapped or plaintext)."""
+        data = {'bits': bits}
+        if context:
+            data['context'] = context
+        return self.post(f'/v1/{mount}/datakey/{key_type}/{key_name}', data)
+    
+    def transit_export_key(self, mount: str, key_name: str,
+                           key_type: str = "encryption-key",
+                           version: str = None) -> APIResponse:
+        """Export a transit key (if exportable)."""
+        path = f'/v1/{mount}/export/{key_type}/{key_name}'
+        if version:
+            path += f'/{version}'
+        return self.get(path)
+    
+    # ============ PKI Engine ============
+    
+    def pki_list_roles(self, mount: str = "pki") -> APIResponse:
+        """List PKI roles."""
+        return self.list(f'/v1/{mount}/roles')
+    
+    def pki_read_role(self, mount: str, role_name: str) -> APIResponse:
+        """Read PKI role configuration."""
+        return self.get(f'/v1/{mount}/roles/{role_name}')
+    
+    def pki_create_role(self, mount: str, role_name: str,
+                        allowed_domains: List[str] = None,
+                        allow_subdomains: bool = True,
+                        allow_any_name: bool = False,
+                        max_ttl: str = "72h",
+                        ttl: str = "24h",
+                        key_type: str = "rsa",
+                        key_bits: int = 2048) -> APIResponse:
+        """Create a PKI role."""
+        data = {
+            'allow_subdomains': allow_subdomains,
+            'allow_any_name': allow_any_name,
+            'max_ttl': max_ttl,
+            'ttl': ttl,
+            'key_type': key_type,
+            'key_bits': key_bits
+        }
+        if allowed_domains:
+            data['allowed_domains'] = allowed_domains
+        return self.post(f'/v1/{mount}/roles/{role_name}', data)
+    
+    def pki_delete_role(self, mount: str, role_name: str) -> APIResponse:
+        """Delete a PKI role."""
+        return self.delete(f'/v1/{mount}/roles/{role_name}')
+    
+    def pki_issue_cert(self, mount: str, role_name: str, common_name: str,
+                       alt_names: str = None, ip_sans: str = None,
+                       ttl: str = None, format: str = "pem") -> APIResponse:
+        """Issue a certificate."""
+        data = {
+            'common_name': common_name,
+            'format': format
+        }
+        if alt_names:
+            data['alt_names'] = alt_names
+        if ip_sans:
+            data['ip_sans'] = ip_sans
+        if ttl:
+            data['ttl'] = ttl
+        return self.post(f'/v1/{mount}/issue/{role_name}', data)
+    
+    def pki_sign_csr(self, mount: str, role_name: str, csr: str,
+                     common_name: str = None, ttl: str = None) -> APIResponse:
+        """Sign a CSR."""
+        data = {'csr': csr}
+        if common_name:
+            data['common_name'] = common_name
+        if ttl:
+            data['ttl'] = ttl
+        return self.post(f'/v1/{mount}/sign/{role_name}', data)
+    
+    def pki_generate_root(self, mount: str, common_name: str,
+                          key_type: str = "rsa", key_bits: int = 2048,
+                          ttl: str = "87600h", issuer_name: str = None) -> APIResponse:
+        """Generate a root CA certificate."""
+        data = {
+            'common_name': common_name,
+            'key_type': key_type,
+            'key_bits': key_bits,
+            'ttl': ttl
+        }
+        if issuer_name:
+            data['issuer_name'] = issuer_name
+        return self.post(f'/v1/{mount}/root/generate/internal', data)
+    
+    def pki_generate_intermediate(self, mount: str, common_name: str,
+                                   key_type: str = "rsa", 
+                                   key_bits: int = 2048) -> APIResponse:
+        """Generate an intermediate CA CSR."""
+        data = {
+            'common_name': common_name,
+            'key_type': key_type,
+            'key_bits': key_bits
+        }
+        return self.post(f'/v1/{mount}/intermediate/generate/internal', data)
+    
+    def pki_set_signed_intermediate(self, mount: str, certificate: str) -> APIResponse:
+        """Set signed intermediate certificate."""
+        return self.post(f'/v1/{mount}/intermediate/set-signed', {
+            'certificate': certificate
+        })
+    
+    def pki_read_ca_cert(self, mount: str = "pki", format: str = "pem") -> APIResponse:
+        """Read CA certificate."""
+        if format == "der":
+            return self.get(f'/v1/{mount}/ca')
+        return self.get(f'/v1/{mount}/ca/pem')
+    
+    def pki_read_crl(self, mount: str = "pki") -> APIResponse:
+        """Read CRL."""
+        return self.get(f'/v1/{mount}/crl/pem')
+    
+    def pki_list_certs(self, mount: str = "pki") -> APIResponse:
+        """List issued certificates by serial number."""
+        return self.list(f'/v1/{mount}/certs')
+    
+    def pki_read_cert(self, mount: str, serial: str) -> APIResponse:
+        """Read a certificate by serial number."""
+        return self.get(f'/v1/{mount}/cert/{serial}')
+    
+    def pki_revoke_cert(self, mount: str, serial: str) -> APIResponse:
+        """Revoke a certificate by serial number."""
+        return self.post(f'/v1/{mount}/revoke', {'serial_number': serial})
+    
+    def pki_tidy(self, mount: str, tidy_cert_store: bool = True,
+                 tidy_revoked_certs: bool = True,
+                 safety_buffer: str = "72h") -> APIResponse:
+        """Tidy up the certificate store."""
+        return self.post(f'/v1/{mount}/tidy', {
+            'tidy_cert_store': tidy_cert_store,
+            'tidy_revoked_certs': tidy_revoked_certs,
+            'safety_buffer': safety_buffer
+        })
+    
+    def pki_list_issuers(self, mount: str = "pki") -> APIResponse:
+        """List PKI issuers."""
+        return self.list(f'/v1/{mount}/issuers')
+    
+    def pki_read_issuer(self, mount: str, issuer_ref: str) -> APIResponse:
+        """Read issuer details."""
+        return self.get(f'/v1/{mount}/issuer/{issuer_ref}')
+    
+    # ============ Identity - Entities ============
+    
+    def identity_list_entities(self) -> APIResponse:
+        """List all entities by ID."""
+        return self.list('/v1/identity/entity/id')
+    
+    def identity_list_entities_by_name(self) -> APIResponse:
+        """List all entities by name."""
+        return self.list('/v1/identity/entity/name')
+    
+    def identity_read_entity(self, entity_id: str) -> APIResponse:
+        """Read an entity by ID."""
+        return self.get(f'/v1/identity/entity/id/{entity_id}')
+    
+    def identity_read_entity_by_name(self, name: str) -> APIResponse:
+        """Read an entity by name."""
+        return self.get(f'/v1/identity/entity/name/{name}')
+    
+    def identity_create_entity(self, name: str, policies: List[str] = None,
+                                metadata: Dict = None, disabled: bool = False) -> APIResponse:
+        """Create a new entity."""
+        data = {'name': name, 'disabled': disabled}
+        if policies:
+            data['policies'] = policies
+        if metadata:
+            data['metadata'] = metadata
+        return self.post('/v1/identity/entity', data)
+    
+    def identity_update_entity(self, entity_id: str, name: str = None,
+                                policies: List[str] = None, metadata: Dict = None,
+                                disabled: bool = None) -> APIResponse:
+        """Update an entity by ID."""
+        data = {}
+        if name is not None:
+            data['name'] = name
+        if policies is not None:
+            data['policies'] = policies
+        if metadata is not None:
+            data['metadata'] = metadata
+        if disabled is not None:
+            data['disabled'] = disabled
+        return self.post(f'/v1/identity/entity/id/{entity_id}', data)
+    
+    def identity_delete_entity(self, entity_id: str) -> APIResponse:
+        """Delete an entity by ID."""
+        return self.delete(f'/v1/identity/entity/id/{entity_id}')
+    
+    def identity_delete_entity_by_name(self, name: str) -> APIResponse:
+        """Delete an entity by name."""
+        return self.delete(f'/v1/identity/entity/name/{name}')
+    
+    def identity_merge_entities(self, to_entity_id: str, from_entity_ids: List[str],
+                                 force: bool = False) -> APIResponse:
+        """Merge multiple entities into one."""
+        return self.post('/v1/identity/entity/merge', {
+            'to_entity_id': to_entity_id,
+            'from_entity_ids': from_entity_ids,
+            'force': force
+        })
+    
+    # ============ Identity - Entity Aliases ============
+    
+    def identity_list_entity_aliases(self) -> APIResponse:
+        """List all entity aliases by ID."""
+        return self.list('/v1/identity/entity-alias/id')
+    
+    def identity_read_entity_alias(self, alias_id: str) -> APIResponse:
+        """Read an entity alias by ID."""
+        return self.get(f'/v1/identity/entity-alias/id/{alias_id}')
+    
+    def identity_create_entity_alias(self, name: str, canonical_id: str,
+                                      mount_accessor: str, custom_metadata: Dict = None) -> APIResponse:
+        """Create an entity alias."""
+        data = {
+            'name': name,
+            'canonical_id': canonical_id,
+            'mount_accessor': mount_accessor
+        }
+        if custom_metadata:
+            data['custom_metadata'] = custom_metadata
+        return self.post('/v1/identity/entity-alias', data)
+    
+    def identity_update_entity_alias(self, alias_id: str, name: str = None,
+                                      canonical_id: str = None, mount_accessor: str = None,
+                                      custom_metadata: Dict = None) -> APIResponse:
+        """Update an entity alias."""
+        data = {}
+        if name is not None:
+            data['name'] = name
+        if canonical_id is not None:
+            data['canonical_id'] = canonical_id
+        if mount_accessor is not None:
+            data['mount_accessor'] = mount_accessor
+        if custom_metadata is not None:
+            data['custom_metadata'] = custom_metadata
+        return self.post(f'/v1/identity/entity-alias/id/{alias_id}', data)
+    
+    def identity_delete_entity_alias(self, alias_id: str) -> APIResponse:
+        """Delete an entity alias."""
+        return self.delete(f'/v1/identity/entity-alias/id/{alias_id}')
+    
+    # ============ Identity - Groups ============
+    
+    def identity_list_groups(self) -> APIResponse:
+        """List all groups by ID."""
+        return self.list('/v1/identity/group/id')
+    
+    def identity_list_groups_by_name(self) -> APIResponse:
+        """List all groups by name."""
+        return self.list('/v1/identity/group/name')
+    
+    def identity_read_group(self, group_id: str) -> APIResponse:
+        """Read a group by ID."""
+        return self.get(f'/v1/identity/group/id/{group_id}')
+    
+    def identity_read_group_by_name(self, name: str) -> APIResponse:
+        """Read a group by name."""
+        return self.get(f'/v1/identity/group/name/{name}')
+    
+    def identity_create_group(self, name: str, group_type: str = "internal",
+                               policies: List[str] = None, metadata: Dict = None,
+                               member_entity_ids: List[str] = None,
+                               member_group_ids: List[str] = None) -> APIResponse:
+        """Create a new group."""
+        data = {'name': name, 'type': group_type}
+        if policies:
+            data['policies'] = policies
+        if metadata:
+            data['metadata'] = metadata
+        if member_entity_ids:
+            data['member_entity_ids'] = member_entity_ids
+        if member_group_ids:
+            data['member_group_ids'] = member_group_ids
+        return self.post('/v1/identity/group', data)
+    
+    def identity_update_group(self, group_id: str, name: str = None,
+                               policies: List[str] = None, metadata: Dict = None,
+                               member_entity_ids: List[str] = None,
+                               member_group_ids: List[str] = None) -> APIResponse:
+        """Update a group by ID."""
+        data = {}
+        if name is not None:
+            data['name'] = name
+        if policies is not None:
+            data['policies'] = policies
+        if metadata is not None:
+            data['metadata'] = metadata
+        if member_entity_ids is not None:
+            data['member_entity_ids'] = member_entity_ids
+        if member_group_ids is not None:
+            data['member_group_ids'] = member_group_ids
+        return self.post(f'/v1/identity/group/id/{group_id}', data)
+    
+    def identity_delete_group(self, group_id: str) -> APIResponse:
+        """Delete a group by ID."""
+        return self.delete(f'/v1/identity/group/id/{group_id}')
+    
+    def identity_delete_group_by_name(self, name: str) -> APIResponse:
+        """Delete a group by name."""
+        return self.delete(f'/v1/identity/group/name/{name}')
+    
+    # ============ Identity - Group Aliases ============
+    
+    def identity_list_group_aliases(self) -> APIResponse:
+        """List all group aliases by ID."""
+        return self.list('/v1/identity/group-alias/id')
+    
+    def identity_read_group_alias(self, alias_id: str) -> APIResponse:
+        """Read a group alias by ID."""
+        return self.get(f'/v1/identity/group-alias/id/{alias_id}')
+    
+    def identity_create_group_alias(self, name: str, canonical_id: str,
+                                     mount_accessor: str) -> APIResponse:
+        """Create a group alias."""
+        return self.post('/v1/identity/group-alias', {
+            'name': name,
+            'canonical_id': canonical_id,
+            'mount_accessor': mount_accessor
+        })
+    
+    def identity_delete_group_alias(self, alias_id: str) -> APIResponse:
+        """Delete a group alias."""
+        return self.delete(f'/v1/identity/group-alias/id/{alias_id}')
+    
+    # ============ Identity - Lookup ============
+    
+    def identity_lookup_entity(self, name: str = None, entity_id: str = None,
+                                alias_id: str = None, alias_name: str = None,
+                                alias_mount_accessor: str = None) -> APIResponse:
+        """Lookup an entity by various criteria."""
+        data = {}
+        if name:
+            data['name'] = name
+        if entity_id:
+            data['id'] = entity_id
+        if alias_id:
+            data['alias_id'] = alias_id
+        if alias_name:
+            data['alias_name'] = alias_name
+        if alias_mount_accessor:
+            data['alias_mount_accessor'] = alias_mount_accessor
+        return self.post('/v1/identity/lookup/entity', data)
+    
+    def identity_lookup_group(self, name: str = None, group_id: str = None,
+                               alias_id: str = None, alias_name: str = None,
+                               alias_mount_accessor: str = None) -> APIResponse:
+        """Lookup a group by various criteria."""
+        data = {}
+        if name:
+            data['name'] = name
+        if group_id:
+            data['id'] = group_id
+        if alias_id:
+            data['alias_id'] = alias_id
+        if alias_name:
+            data['alias_name'] = alias_name
+        if alias_mount_accessor:
+            data['alias_mount_accessor'] = alias_mount_accessor
+        return self.post('/v1/identity/lookup/group', data)
     
     # ============ Generic API Access ============
     

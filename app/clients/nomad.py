@@ -92,6 +92,22 @@ class NomadClient(BaseHTTPClient):
         params = self._add_params()
         return self.post('/v1/jobs', {'Job': job_spec})
     
+    def job_parse(self, hcl_content: str, canonicalize: bool = True) -> APIResponse:
+        """Parse HCL job specification into JSON.
+        
+        Args:
+            hcl_content: HCL job specification as a string
+            canonicalize: Whether to canonicalize the job spec
+        
+        Returns:
+            APIResponse with parsed job JSON in data field
+        """
+        params = self._add_params()
+        return self.post('/v1/jobs/parse', {
+            'JobHCL': hcl_content,
+            'Canonicalize': canonicalize
+        })
+    
     def job_update(self, job_id: str, job_spec: Dict) -> APIResponse:
         """Update a job."""
         params = self._add_params()

@@ -23,6 +23,10 @@ class PackerMenuBuilder(QObject):
             self._client = PackerClient(self.settings.packer)
         return self._client
     
+    def refresh_client(self):
+        """Reset client to pick up new settings."""
+        self._client = None
+    
     def build_menu(self) -> QMenu:
         menu = QMenu("📦 Packer")
         

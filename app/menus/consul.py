@@ -1,11 +1,11 @@
 """Consul Menu Builder for OpenTongchi"""
 
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 from PySide6.QtWidgets import QMenu, QMessageBox, QInputDialog
 from PySide6.QtCore import QObject, Signal
 from app.clients.consul import ConsulClient
 from app.async_menu import AsyncMenu, create_status_prefix
-from app.dialogs import JsonEditorDialog, CrudDialog
+from app.dialogs import JsonEditorDialog, CrudDialog, TemplateSelectionDialog, CONSUL_SERVICE_TEMPLATES
 import base64
 
 
@@ -79,6 +79,7 @@ class ConsulMenuBuilder(QObject):
     def _create_services_menu(self) -> QMenu:
         menu = AsyncMenu("🌐 Services", self._load_services)
         menu.set_submenu_factory(self._create_service_submenu)
+        menu.set_new_item_callback(self._create_service, "➕ New Service...")
         return menu
     
     def _load_services(self) -> list:
@@ -315,3 +316,28 @@ class ConsulMenuBuilder(QObject):
         if response.ok:
             dialog = JsonEditorDialog(f"Health Checks: {state}", response.data, readonly=True)
             dialog.exec()
+    
+    def _create_service(self):
+        """Create a new service from template."""
+        dialog = TemplateSelectionDialog(
+            "Register New Service",
+            CONSUL_SERVICE_TEMPLATES,
+            syntax_hint="json",
+            submit_callback=self._register_service
+        )
+        dialog.exec()
+    
+    def _register_service(self, json_content: str) -> Tuple[bool, str]:
+        """Register service with Consul agent. Returns (success, error_message)."""
+        import json as json_module
+        try:
+            service_def = json_module.loads(json_content)
+            response = self.client.agent_register_service(service_def)
+            if response.ok:
+                service_name = service_def.get('Name', service_def.get('ID', 'unknown'))
+                self.notification.emit("Service Registered", f"Service {service_name} registered successfully")
+                return (True, "")
+            else:
+                return (False, f"Failed to register service: {response.error}")
+        except json_module.JSONDecodeError as e:
+            return (False, f"Invalid JSON: {e}")

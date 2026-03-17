@@ -1,7 +1,7 @@
 # OpenTongchi
 
 <p align="center">
-  <img src="img/opentongchi.webp" alt="OpenTongchi Logo" width="128" height="128">
+  <img src="img/opentongchi.png" alt="OpenTongchi Logo" width="128" height="128">
 </p>
 
 <p align="center">
@@ -19,7 +19,7 @@
 
 ---
 
-OpenTongchi is a Qt6-based system tray widget that provides unified access to open source infrastructure tools. Browse secrets, monitor services, manage jobs, and execute infrastructure operations—all from your system tray using ~200KB of Python + QT6 instead of bulky Go binaries and chonky Electron apps.
+OpenTongchi is a Qt6-based system tray widget that provides unified access to open source infrastructure tools. Browse secrets, monitor services, manage jobs, and execute infrastructure operations—all from your system tray.
 
 ## Features
 
@@ -31,8 +31,6 @@ OpenTongchi is a Qt6-based system tray widget that provides unified access to op
 - **Background Processes** — Execute long-running operations (plan, apply, build) with progress tracking
 - **Automatic Renewal** — Configurable background token and lease renewal
 - **System Notifications** — Desktop notifications for process completion, failures, and status changes
-
-[Screencast_20260102_173355.webm](https://github.com/user-attachments/assets/b49d790a-2ff1-4e6a-a906-5f289b6eab58)
 
 ### 🔐 OpenBao (Vault)
 
@@ -113,7 +111,7 @@ python main.py
 
 ```bash
 # Enable the COPR repository
-sudo dnf copr enable boeroboy/hashicorp
+sudo dnf copr enable jboero/opentongchi
 
 # Install
 sudo dnf install opentongchi
@@ -224,7 +222,7 @@ opentongchi/
 │       ├── opentofu.py
 │       └── packer.py
 └── img/
-    └── opentongchi.webp     # Application icon
+    └── opentongchi.png     # Application icon
 ```
 
 ## Dependencies

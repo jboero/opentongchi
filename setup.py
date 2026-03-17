@@ -7,7 +7,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="opentongchi",
-    version="0.2.0",
+    version="1.4.2",
     description="System Tray Manager for Open Source Infrastructure Tools",
     author="OpenTongchi Contributors",
     license="MPL-2.0",

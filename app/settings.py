@@ -1,14 +1,22 @@
 """
 Settings Manager for OpenTongchi
 Handles all configuration, environment variables, and persistent settings.
+Secrets are stored securely using the system keyring (KDE Wallet, GNOME Keyring, etc.)
 """
 
 import os
 import json
 from pathlib import Path
-from typing import Any, Optional, Dict
-from dataclasses import dataclass, field, asdict
+from typing import Any, Optional, Dict, List
+from dataclasses import dataclass, field, asdict, fields
 from PySide6.QtCore import QSettings
+
+# Try to import keyring for secure secret storage
+try:
+    import keyring
+    KEYRING_AVAILABLE = True
+except ImportError:
+    KEYRING_AVAILABLE = False
 
 # Default addresses for services
 DEFAULT_VAULT_ADDR = "http://127.0.0.1:8200"
@@ -17,12 +25,125 @@ DEFAULT_NOMAD_ADDR = "http://127.0.0.1:4646"
 DEFAULT_BOUNDARY_ADDR = "http://127.0.0.1:9200"
 DEFAULT_WAYPOINT_ADDR = "http://127.0.0.1:9701"
 
+# Service name for keyring
+KEYRING_SERVICE = "opentongchi"
+
+# Fields that should be stored securely in keyring
+SECRET_FIELDS = {
+    'openbao': ['token'],
+    'opentofu': ['hcp_token'],
+    'consul': ['token'],
+    'nomad': ['token'],
+    'boundary': ['token', 'password'],
+    'waypoint': ['token'],
+}
+
+
+class SecretStore:
+    """Secure storage for secrets using system keyring."""
+    
+    def __init__(self):
+        self._available = KEYRING_AVAILABLE
+        self._cache: Dict[str, str] = {}  # In-memory cache for session
+        
+        if self._available:
+            try:
+                # Test keyring availability
+                keyring.get_keyring()
+            except Exception:
+                self._available = False
+    
+    @property
+    def is_available(self) -> bool:
+        return self._available
+    
+    def _make_key(self, section: str, field: str) -> str:
+        """Create a keyring key from section and field."""
+        return f"{section}.{field}"
+    
+    def get_secret(self, section: str, field: str) -> str:
+        """Retrieve a secret from keyring."""
+        key = self._make_key(section, field)
+        
+        # Check cache first
+        if key in self._cache:
+            return self._cache[key]
+        
+        if not self._available:
+            return ""
+        
+        try:
+            value = keyring.get_password(KEYRING_SERVICE, key)
+            if value:
+                self._cache[key] = value
+                return value
+        except Exception:
+            pass
+        
+        return ""
+    
+    def set_secret(self, section: str, field: str, value: str):
+        """Store a secret in keyring."""
+        key = self._make_key(section, field)
+        
+        # Update cache
+        if value:
+            self._cache[key] = value
+        elif key in self._cache:
+            del self._cache[key]
+        
+        if not self._available:
+            return
+        
+        try:
+            if value:
+                keyring.set_password(KEYRING_SERVICE, key, value)
+            else:
+                # Delete empty secrets
+                try:
+                    keyring.delete_password(KEYRING_SERVICE, key)
+                except keyring.errors.PasswordDeleteError:
+                    pass
+        except Exception:
+            pass
+    
+    def delete_secret(self, section: str, field: str):
+        """Delete a secret from keyring."""
+        key = self._make_key(section, field)
+        
+        if key in self._cache:
+            del self._cache[key]
+        
+        if not self._available:
+            return
+        
+        try:
+            keyring.delete_password(KEYRING_SERVICE, key)
+        except Exception:
+            pass
+    
+    def clear_cache(self):
+        """Clear the in-memory cache."""
+        self._cache.clear()
+
+
+# Global secret store instance
+_secret_store: Optional[SecretStore] = None
+
+
+def get_secret_store() -> SecretStore:
+    """Get the global secret store instance."""
+    global _secret_store
+    if _secret_store is None:
+        _secret_store = SecretStore()
+    return _secret_store
+
 
 @dataclass
 class OpenBaoSettings:
     """OpenBao (Vault) settings."""
     address: str = DEFAULT_VAULT_ADDR
-    token: str = ""
+    token: str = ""  # Stored in keyring
     namespace: str = ""
     skip_verify: bool = False
     auto_renew_token: bool = True
@@ -41,7 +162,7 @@ class OpenBaoSettings:
 class OpenTofuSettings:
     """OpenTofu (Terraform) settings."""
     home_dir: str = ""
-    hcp_token: str = ""
+    hcp_token: str = ""  # Stored in keyring
     hcp_org: str = ""
     binary_path: str = "tofu"
     
@@ -63,7 +184,7 @@ class OpenTofuSettings:
 class ConsulSettings:
     """Consul settings."""
     address: str = DEFAULT_CONSUL_ADDR
-    token: str = ""
+    token: str = ""  # Stored in keyring
     namespace: str = ""
     datacenter: str = ""
     
@@ -80,7 +201,7 @@ class ConsulSettings:
 class NomadSettings:
     """Nomad settings."""
     address: str = DEFAULT_NOMAD_ADDR
-    token: str = ""
+    token: str = ""  # Stored in keyring
     namespace: str = ""
     region: str = ""
     refresh_interval_seconds: int = 10
@@ -98,8 +219,11 @@ class NomadSettings:
 class BoundarySettings:
     """Boundary settings."""
     address: str = DEFAULT_BOUNDARY_ADDR
-    token: str = ""
+    token: str = ""  # Stored in keyring
     auth_method_id: str = ""
+    login_name: str = ""
+    password: str = ""  # Stored in keyring
+    scope_id: str = "global"
     binary_path: str = "boundary"
     
     def load_from_env(self):
@@ -107,13 +231,16 @@ class BoundarySettings:
         self.address = os.environ.get('BOUNDARY_ADDR', self.address)
         self.token = os.environ.get('BOUNDARY_TOKEN', self.token)
         self.auth_method_id = os.environ.get('BOUNDARY_AUTH_METHOD_ID', self.auth_method_id)
+        self.login_name = os.environ.get('BOUNDARY_LOGIN_NAME', self.login_name)
+        self.password = os.environ.get('BOUNDARY_PASSWORD', self.password)
+        self.scope_id = os.environ.get('BOUNDARY_SCOPE_ID', self.scope_id)
 
 
 @dataclass
 class WaypointSettings:
     """Waypoint settings."""
     address: str = DEFAULT_WAYPOINT_ADDR
-    token: str = ""
+    token: str = ""  # Stored in keyring
     
     def load_from_env(self):
         """Load settings from environment variables."""
@@ -141,6 +268,10 @@ class GlobalSettings:
     show_notifications: bool = True
     log_level: str = "INFO"
     cache_dir: str = ""
+    # Sound notification settings
+    sounds_enabled: bool = False
+    sound_success: str = "system"  # "system", "none", or path to file
+    sound_error: str = "system"    # "system", "none", or path to file
     
     def load_from_env(self):
         """Load settings from environment variables."""
@@ -150,10 +281,15 @@ class GlobalSettings:
 
 
 class SettingsManager:
-    """Manages all application settings with persistence."""
+    """Manages all application settings with persistence.
+    
+    Secrets (tokens, passwords) are stored in the system keyring.
+    Other settings are stored in QSettings.
+    """
     
     def __init__(self):
         self.qsettings = QSettings("OpenTongchi", "OpenTongchi")
+        self.secret_store = get_secret_store()
         
         # Initialize all settings objects
         self.global_settings = GlobalSettings()
@@ -168,8 +304,14 @@ class SettingsManager:
         # Load from environment first
         self._load_from_env()
         
-        # Then load persisted settings (overrides env)
+        # Then load persisted settings (overrides env for non-secrets)
         self._load_persisted()
+        
+        # Load secrets from keyring
+        self._load_secrets()
+        
+        # Migrate any old secrets from QSettings to keyring
+        self._migrate_secrets_to_keyring()
         
         # Ensure cache directory exists
         Path(self.global_settings.cache_dir).mkdir(parents=True, exist_ok=True)
@@ -194,16 +336,25 @@ class SettingsManager:
             if not self.nomad.namespace:
                 self.nomad.namespace = self.global_settings.namespace
     
+    def _get_non_secret_dict(self, section: str, obj: Any) -> Dict:
+        """Get a dictionary of non-secret fields from an object."""
+        secret_fields = SECRET_FIELDS.get(section, [])
+        result = {}
+        for f in fields(obj):
+            if f.name not in secret_fields:
+                result[f.name] = getattr(obj, f.name)
+        return result
+    
     def _load_persisted(self):
-        """Load settings from persistent storage."""
-        # Global settings
+        """Load non-secret settings from persistent storage."""
+        # Global settings (no secrets)
         if self.qsettings.contains("global"):
             data = json.loads(self.qsettings.value("global", "{}"))
             for key, value in data.items():
                 if hasattr(self.global_settings, key):
                     setattr(self.global_settings, key, value)
         
-        # Product-specific settings
+        # Product-specific settings (excluding secrets)
         for name, obj in [
             ("openbao", self.openbao),
             ("opentofu", self.opentofu),
@@ -213,23 +364,99 @@ class SettingsManager:
             ("waypoint", self.waypoint),
             ("packer", self.packer),
         ]:
+            secret_fields = SECRET_FIELDS.get(name, [])
             if self.qsettings.contains(name):
                 data = json.loads(self.qsettings.value(name, "{}"))
                 for key, value in data.items():
+                    # Skip secret fields - they're loaded from keyring
+                    if key in secret_fields:
+                        continue
                     if hasattr(obj, key):
                         setattr(obj, key, value)
     
+    def _load_secrets(self):
+        """Load secrets from keyring."""
+        for section, secret_fields in SECRET_FIELDS.items():
+            obj = getattr(self, section, None)
+            if obj is None:
+                continue
+            
+            for field_name in secret_fields:
+                # Only load from keyring if not already set from env
+                current_value = getattr(obj, field_name, "")
+                if not current_value:
+                    secret_value = self.secret_store.get_secret(section, field_name)
+                    if secret_value:
+                        setattr(obj, field_name, secret_value)
+    
+    def _save_secrets(self):
+        """Save secrets to keyring."""
+        for section, secret_fields in SECRET_FIELDS.items():
+            obj = getattr(self, section, None)
+            if obj is None:
+                continue
+            
+            for field_name in secret_fields:
+                value = getattr(obj, field_name, "")
+                self.secret_store.set_secret(section, field_name, value)
+    
+    def _migrate_secrets_to_keyring(self):
+        """Migrate any secrets stored in QSettings to keyring.
+        
+        This handles upgrades from older versions that stored secrets in plain text.
+        """
+        if not self.secret_store.is_available:
+            return
+        
+        migrated = False
+        for section, secret_fields in SECRET_FIELDS.items():
+            if self.qsettings.contains(section):
+                try:
+                    data = json.loads(self.qsettings.value(section, "{}"))
+                    for field_name in secret_fields:
+                        if field_name in data and data[field_name]:
+                            # Move to keyring if not already there
+                            existing = self.secret_store.get_secret(section, field_name)
+                            if not existing:
+                                self.secret_store.set_secret(section, field_name, data[field_name])
+                            # Clear from QSettings data
+                            data[field_name] = ""
+                            migrated = True
+                    if migrated:
+                        # Re-save without secrets
+                        self.qsettings.setValue(section, json.dumps(data))
+                except Exception:
+                    pass
+        
+        if migrated:
+            self.qsettings.sync()
+    
     def save(self):
-        """Save all settings to persistent storage."""
+        """Save all settings to persistent storage.
+        
+        Non-secret settings go to QSettings.
+        Secrets go to the system keyring.
+        """
+        # Save non-secret settings to QSettings
         self.qsettings.setValue("global", json.dumps(asdict(self.global_settings)))
-        self.qsettings.setValue("openbao", json.dumps(asdict(self.openbao)))
-        self.qsettings.setValue("opentofu", json.dumps(asdict(self.opentofu)))
-        self.qsettings.setValue("consul", json.dumps(asdict(self.consul)))
-        self.qsettings.setValue("nomad", json.dumps(asdict(self.nomad)))
-        self.qsettings.setValue("boundary", json.dumps(asdict(self.boundary)))
-        self.qsettings.setValue("waypoint", json.dumps(asdict(self.waypoint)))
-        self.qsettings.setValue("packer", json.dumps(asdict(self.packer)))
+        
+        for name, obj in [
+            ("openbao", self.openbao),
+            ("opentofu", self.opentofu),
+            ("consul", self.consul),
+            ("nomad", self.nomad),
+            ("boundary", self.boundary),
+            ("waypoint", self.waypoint),
+            ("packer", self.packer),
+        ]:
+            # Save non-secret fields to QSettings
+            non_secret_data = self._get_non_secret_dict(name, obj)
+            self.qsettings.setValue(name, json.dumps(non_secret_data))
+        
         self.qsettings.sync()
+        
+        # Save secrets to keyring
+        self._save_secrets()
     
     def get_cache_path(self, filename: str) -> Path:
         """Get path for a cache file."""
@@ -238,3 +465,7 @@ class SettingsManager:
     def get_effective_namespace(self) -> str:
         """Get the effective global namespace."""
         return self.global_settings.namespace
+    
+    def is_keyring_available(self) -> bool:
+        """Check if secure keyring storage is available."""
+        return self.secret_store.is_available

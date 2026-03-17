@@ -1,15 +1,10 @@
-# https://fedoraproject.org/wiki/How_to_create_an_RPM_package
-# Built and maintained by John Boero - boeroboy@gmail.com
-# In honor of Seth Vidal https://www.redhat.com/it/blog/thank-you-seth-vidal
-# Completed with help from Athropic Claude Opus v4.5
-
 %global pypi_name opentongchi
 %global app_name OpenTongchi
 %global github_owner jboero
 %global github_repo opentongchi
 
 Name:           opentongchi
-Version:        0.2.0
+Version:        1.4.2
 Release:        1%{?dist}
 Summary:        System Tray Manager for Open Source Infrastructure Tools
 
@@ -26,6 +21,7 @@ BuildRequires:  desktop-file-utils
 
 Requires:       python3 >= 3.10
 Requires:       python3-pyside6
+Requires:       python3-keyring
 Requires:       hicolor-icon-theme
 
 # Optional runtime dependencies for full functionality
@@ -76,14 +72,8 @@ main()
 WRAPPER
 chmod 755 %{buildroot}%{_bindir}/%{name}
 
-# Install icon (multiple sizes for better scaling)
-for size in 256 128 64 48; do
-    install -D -m 644 img/opentongchi.webp \
-        %{buildroot}%{_datadir}/icons/hicolor/${size}x${size}/apps/%{name}.webp
-done
-
 # Also install to pixmaps for legacy support
-install -D -m 644 img/opentongchi.webp %{buildroot}%{_datadir}/pixmaps/%{name}.webp
+install -D -m 644 img/opentongchi.png %{buildroot}%{_datadir}/pixmaps/opentongchi.png
 
 # Install desktop file
 mkdir -p %{buildroot}%{_datadir}/applications
@@ -146,11 +136,157 @@ fi
 %{_bindir}/%{name}
 %{python3_sitelib}/%{pypi_name}/
 %{_datadir}/applications/%{name}.desktop
-%{_datadir}/icons/hicolor/*/apps/%{name}.webp
-%{_datadir}/pixmaps/%{name}.webp
+%{_datadir}/icons/hicolor/*/apps/%{name}.png
+%{_datadir}/pixmaps/%{name}.png
 %config(noreplace) %{_sysconfdir}/xdg/autostart/%{name}.desktop
 
 %changelog
+* Thu Jan 02 2025 John Boero <jboero@gmail.com> - 1.3.1-1
+- Added HCL syntax highlighting for Nomad job templates
+- Added JSON syntax highlighting for Consul service templates
+- Dark theme editor with One Dark color scheme
+- Highlights: keywords, blocks, strings, numbers, comments, interpolation
+
+* Thu Jan 02 2025 John Boero <jboero@gmail.com> - 1.4.2-1
+- Added Mandarin name (汤匙) to About dialog
+
+* Thu Jan 02 2025 John Boero <jboero@gmail.com> - 1.4.1-1
+- Improved sound playback - now uses command-line players first (paplay, pw-play, aplay)
+- Added PipeWire support (pw-play)
+- Falls back to Qt QMediaPlayer for better format support
+- Eliminates noisy Qt multimedia debug messages
+
+* Thu Jan 02 2025 John Boero <jboero@gmail.com> - 1.4.0-1
+- Added sound notifications for process completion and errors
+- New SoundManager class with system sound discovery
+- Sound settings in Global tab: enable/disable, success sound, error sound
+- Test buttons to preview sounds in settings dialog
+- Supports system theme sounds, custom paths, or disabled
+- Falls back to paplay/aplay/afplay if QtMultimedia unavailable
+
+* Thu Jan 02 2025 John Boero <jboero@gmail.com> - 1.3.0-1
+- Boundary: Simplified Sessions menu (removed redundant "All Sessions")
+- Consul: Added "New Service..." with 7 comprehensive JSON templates
+- Nomad: Enhanced "New Job..." with 8 HCL templates for all job types
+- Templates include extensive comments documenting all attributes
+- Added TemplateSelectionDialog for template-based resource creation
+- Nomad: Added job_parse endpoint for HCL to JSON conversion
+
+* Thu Jan 02 2025 John Boero <jboero@gmail.com> - 1.3.2-1
+- JSON syntax highlighting applied to all Raw JSON view tabs
+- About dialog now shows dynamic version number
+- Fixed syntax highlighter assignment bug for unsupported syntax types
+
+* Thu Jan 02 2025 John Boero <jboero@gmail.com> - 1.2.1-1
+- Fixed NoneType errors when lists are empty (Groups, Sessions, etc.)
+- Added "New..." menu options for creating Organizations, Projects, Users, Groups, Roles, Aliases
+- Added create/delete methods to Boundary client
+- Empty menus now show "(No items yet)" with New option
+
+* Thu Jan 02 2025 John Boero <jboero@gmail.com> - 1.2.0-1
+- Boundary menu restructured to match web UI
+- Added Orgs tree navigation
+- Added Aliases menu with target alias listing
+- Added Workers menu with worker status and details
+- Added Global IAM menu (Users, Groups, Roles, Auth Methods)
+- Connection processes now registered with global process manager
+- Boundary connections can be stopped from the Processes menu
+
+* Thu Jan 02 2025 John Boero <jboero@gmail.com> - 1.1.3-1
+- Fixed Users & Groups menu - now properly shows Users, Groups, Roles submenus
+- Each submenu loads data from global scope and shows details on click
+
+* Thu Jan 02 2025 John Boero <jboero@gmail.com> - 1.1.2-1
+- Fixed client caching issue - client now refreshes on each menu build
+- Improved auth error messages to show which credentials ARE configured
+- Debug info helps identify settings issues
+
+* Thu Jan 02 2025 John Boero <jboero@gmail.com> - 1.1.1-1
+- Fixed password authentication flow for Boundary
+- Auth now happens automatically when credentials are configured
+- CLI commands now properly wait for authentication before executing
+- Added auth error display in status menu with retry option
+- Improved token extraction from Boundary auth response
+
+* Thu Jan 02 2025 John Boero <jboero@gmail.com> - 1.1.0-1
+- Boundary menu rebuilt with org/scope tree navigation
+- Organizations menu showing global → orgs → projects hierarchy
+- Fixed token passing via BOUNDARY_TOKEN environment variable
+- All Targets and All Sessions now work correctly with authentication
+- Added per-project views: targets, sessions, host catalogs, credential stores
+- Added per-org views: users, groups, roles
+- Auth methods menu at global scope
+
+* Thu Jan 02 2025 John Boero <jboero@gmail.com> - 1.0.0-1
+- Secure secret storage using system keyring
+- Tokens and passwords stored in KDE Wallet / GNOME Keyring / macOS Keychain
+- Automatic migration of secrets from QSettings to keyring
+- Added keyring dependency
+
+* Thu Jan 02 2025 John Boero <jboero@gmail.com> - 0.9.0-1
+- Boundary username/password authentication support
+- Auto-authentication when token not provided
+- Added login_name, password, scope_id settings
+- Environment variables: BOUNDARY_LOGIN_NAME, BOUNDARY_PASSWORD, BOUNDARY_SCOPE_ID
+- Settings dialog updated with password auth fields
+- Additional Boundary API methods (accounts, users, groups, roles)
+
+* Thu Jan 02 2025 John Boero <jboero@gmail.com> - 0.8.0-1
+- Comprehensive auth method configuration and management
+- Userpass auth: full user CRUD, password changes
+- AppRole auth: role CRUD, Role ID, Secret ID generation
+- Token auth: token role management
+- LDAP auth: config view, group and user management
+- OIDC/JWT auth: config and role viewing
+- Kubernetes auth: config and role viewing
+- Auth method tuning (TTL, description, token type)
+- Disable auth method with confirmation
+
+* Thu Jan 02 2025 John Boero <jboero@gmail.com> - 0.7.0-1
+- Policy editor now uses large text box for HCL editing
+- Added Namespace management (Enterprise feature)
+- Namespace switching and nested namespace support
+- OpenTongchi title now clickable for About dialog
+- Removed separate About menu item
+
+* Thu Jan 02 2025 John Boero <jboero@gmail.com> - 0.6.0-1
+- Identity management: Entities, Entity Aliases, Groups, Group Aliases
+- Full CRUD for all Identity objects
+- Entity alias management per entity
+- Group membership management
+- Lookup entity/group by name, ID, or alias
+- Merge entities functionality
+
+* Thu Jan 02 2025 John Boero <jboero@gmail.com> - 0.5.0-1
+- Generic secrets engine CRUD support for any engine type
+- File upload/save support for Transit encrypt/decrypt/sign/verify/HMAC
+- Database engine support with credential generation
+- AWS engine support with IAM and STS credential generation
+- SSH engine support with key signing
+- TOTP engine support with code generation
+- Cubbyhole personal secrets support
+- Raw API read/write/list/delete for advanced users
+
+* Thu Jan 02 2025 John Boero <jboero@gmail.com> - 0.4.0-1
+- Enhanced OpenBao secrets management
+- Full Transit engine support: create/delete keys, encrypt/decrypt, sign/verify, HMAC, rewrap
+- Full PKI engine support: CA management, roles, issue/sign/revoke certificates
+- Transit key rotation and export
+- PKI root and intermediate CA generation
+- Certificate listing and revocation
+- Added missing refresh_client methods for OpenTofu and Packer
+
+* Thu Jan 02 2025 John Boero <jboero@gmail.com> - 0.3.0-1
+- Added comprehensive HCP Terraform Cloud support
+- Organization info and settings management
+- Variable Sets with full CRUD operations
+- Workspace variables management
+- Teams listing
+- State versions browsing
+- Lock/unlock workspaces
+- Create/delete workspaces
+- Destroy runs support
+
 * Thu Jan 02 2025 John Boero <jboero@gmail.com> - 0.2.0-1
 - Initial package release
 - Support for OpenBao (Vault) secrets and auth management

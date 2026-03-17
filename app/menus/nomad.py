@@ -1,11 +1,11 @@
 """Nomad Menu Builder for OpenTongchi"""
 
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 from PySide6.QtWidgets import QMenu, QMessageBox, QInputDialog
 from PySide6.QtCore import QObject, Signal, QTimer
 from app.clients.nomad import NomadClient
 from app.async_menu import AsyncMenu
-from app.dialogs import JsonEditorDialog, CrudDialog
+from app.dialogs import JsonEditorDialog, CrudDialog, TemplateSelectionDialog, NOMAD_JOB_TEMPLATES
 
 
 class NomadMenuBuilder(QObject):
@@ -412,14 +412,31 @@ class NomadMenuBuilder(QObject):
             self.notification.emit("Job Saved", "Job updated successfully")
     
     def _create_job(self):
-        dialog = JsonEditorDialog("New Job", {
-            'ID': '',
-            'Name': '',
-            'Type': 'service',
-            'TaskGroups': []
-        })
-        dialog.saved.connect(lambda d: self._save_job(d))
+        """Create a new job from template."""
+        dialog = TemplateSelectionDialog(
+            "New Nomad Job", 
+            NOMAD_JOB_TEMPLATES,
+            syntax_hint="hcl",
+            submit_callback=self._submit_job_hcl
+        )
         dialog.exec()
+    
+    def _submit_job_hcl(self, hcl_content: str) -> Tuple[bool, str]:
+        """Submit job HCL to Nomad. Returns (success, error_message)."""
+        # Nomad API accepts HCL via the job parse endpoint
+        response = self.client.job_parse(hcl_content)
+        if response.ok:
+            job_spec = response.data
+            # Register the parsed job
+            register_response = self.client.job_register(job_spec)
+            if register_response.ok:
+                job_id = job_spec.get('ID', job_spec.get('Name', 'unknown'))
+                self.notification.emit("Job Created", f"Job {job_id} submitted successfully")
+                return (True, "")
+            else:
+                return (False, f"Failed to register job: {register_response.error}")
+        else:
+            return (False, f"Failed to parse HCL: {response.error}")
     
     def _drain_node(self, node_id: str, enable: bool):
         response = self.client.node_drain(node_id, enable)
