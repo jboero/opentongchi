@@ -1,3 +1,8 @@
+# https://fedoraproject.org/wiki/How_to_create_an_RPM_package
+# Built and maintained by John Boero - boeroboy@gmail.com
+# In honor of Seth Vidal https://www.redhat.com/it/blog/thank-you-seth-vidal
+# Completed with help from Athropic Claude Opus v4.5
+
 %global pypi_name opentongchi
 %global app_name OpenTongchi
 %global github_owner jboero
@@ -10,7 +15,7 @@ Summary:        System Tray Manager for Open Source Infrastructure Tools
 
 License:        MPL-2.0
 URL:            https://github.com/%{github_owner}/%{github_repo}
-Source0:        %{url}/archive/refs/tags/v%{version}.tar.gz#/%{name}-%{version}.tar.gz
+Source0:        %{url}/archive/refs/tags/v%{version}.tar.gz
 
 BuildArch:      noarch
 BuildRequires:  python3-devel
@@ -72,8 +77,14 @@ main()
 WRAPPER
 chmod 755 %{buildroot}%{_bindir}/%{name}
 
+# Install icon (multiple sizes for better scaling)
+for size in 256 128 64 48; do
+    install -D -m 644 img/opentongchi.webp \
+        %{buildroot}%{_datadir}/icons/hicolor/${size}x${size}/apps/%{name}.webp
+done
+
 # Also install to pixmaps for legacy support
-install -D -m 644 img/opentongchi.png %{buildroot}%{_datadir}/pixmaps/opentongchi.png
+install -D -m 644 img/opentongchi.webp %{buildroot}%{_datadir}/pixmaps/opentongchi.webp
 
 # Install desktop file
 mkdir -p %{buildroot}%{_datadir}/applications
@@ -136,8 +147,8 @@ fi
 %{_bindir}/%{name}
 %{python3_sitelib}/%{pypi_name}/
 %{_datadir}/applications/%{name}.desktop
-%{_datadir}/icons/hicolor/*/apps/%{name}.png
-%{_datadir}/pixmaps/%{name}.png
+%{_datadir}/icons/hicolor/*/apps/%{name}.webp
+%{_datadir}/pixmaps/%{name}.webp
 %config(noreplace) %{_sysconfdir}/xdg/autostart/%{name}.desktop
 
 %changelog
