@@ -1,7 +1,7 @@
 # OpenTongchi
 
 <p align="center">
-  <img src="img/opentongchi.png" alt="OpenTongchi Logo" width="128" height="128">
+  <img src="img/opentongchi.webp" alt="OpenTongchi Logo" width="128" height="128">
 </p>
 
 <p align="center">
