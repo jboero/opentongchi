@@ -1,21 +1,16 @@
-# https://fedoraproject.org/wiki/How_to_create_an_RPM_package
-# Built and maintained by John Boero - boeroboy@gmail.com
-# In honor of Seth Vidal https://www.redhat.com/it/blog/thank-you-seth-vidal
-# Completed with help from Athropic Claude Opus v4.5
-
 %global pypi_name opentongchi
 %global app_name OpenTongchi
 %global github_owner jboero
 %global github_repo opentongchi
 
 Name:           opentongchi
-Version:        1.4.2
+Version:        1.5.0
 Release:        1%{?dist}
 Summary:        System Tray Manager for Open Source Infrastructure Tools
 
 License:        MPL-2.0
 URL:            https://github.com/%{github_owner}/%{github_repo}
-Source0:        %{url}/archive/refs/tags/v%{version}.tar.gz
+Source0:        %{url}/archive/refs/tags/v%{version}.tar.gz#/%{name}-%{version}.tar.gz
 
 BuildArch:      noarch
 BuildRequires:  python3-devel
@@ -37,7 +32,7 @@ Recommends:     boundary
 %description
 OpenTongchi is a Qt6-based system tray application for managing open source
 infrastructure tools including OpenBao (Vault), Consul, Nomad, Boundary,
-OpenTofu (Terraform), and Packer.
+OpenTofu (Terraform), Packer, and HashiCorp Cloud Platform (HCP).
 
 Features:
 - Browse and manage secrets, KV stores, and policies via nested tree menus
@@ -47,6 +42,8 @@ Features:
 - Build Packer images with log browsing
 - Automatic token and lease renewal in the background
 - Native table-based CRUD dialogs for JSON documents
+- HCP: Terraform, Vault Secrets, Vault Dedicated, Packer Registry,
+  Boundary, Consul Dedicated, Waypoint, and HVN management
 
 %prep
 %autosetup -n %{github_repo}-%{version}
@@ -60,6 +57,10 @@ mkdir -p %{buildroot}%{python3_sitelib}/%{pypi_name}
 cp -r app %{buildroot}%{python3_sitelib}/%{pypi_name}/
 cp main.py %{buildroot}%{python3_sitelib}/%{pypi_name}/
 touch %{buildroot}%{python3_sitelib}/%{pypi_name}/__init__.py
+
+# Ensure icon is available as package data for the app's _find_icon()
+mkdir -p %{buildroot}%{python3_sitelib}/%{pypi_name}/app/img
+cp img/opentongchi.* %{buildroot}%{python3_sitelib}/%{pypi_name}/app/img/
 
 # Create wrapper script
 mkdir -p %{buildroot}%{_bindir}
@@ -77,14 +78,22 @@ main()
 WRAPPER
 chmod 755 %{buildroot}%{_bindir}/%{name}
 
-# Install icon (multiple sizes for better scaling)
+# Install icon - prefer webp > png > svg (check what exists in source)
+if [ -f img/opentongchi.webp ]; then
+    ICON_EXT=webp
+elif [ -f img/opentongchi.png ]; then
+    ICON_EXT=png
+else
+    ICON_EXT=svg
+fi
+
 for size in 256 128 64 48; do
-    install -D -m 644 img/opentongchi.webp \
-        %{buildroot}%{_datadir}/icons/hicolor/${size}x${size}/apps/%{name}.webp
+    install -D -m 644 img/opentongchi.${ICON_EXT} \
+        %{buildroot}%{_datadir}/icons/hicolor/${size}x${size}/apps/%{name}.${ICON_EXT}
 done
 
 # Also install to pixmaps for legacy support
-install -D -m 644 img/opentongchi.webp %{buildroot}%{_datadir}/pixmaps/opentongchi.webp
+install -D -m 644 img/opentongchi.${ICON_EXT} %{buildroot}%{_datadir}/pixmaps/%{name}.${ICON_EXT}
 
 # Install desktop file
 mkdir -p %{buildroot}%{_datadir}/applications
@@ -125,6 +134,7 @@ AUTOSTART
 %check
 # Basic syntax check
 %{python3} -m py_compile %{buildroot}%{python3_sitelib}/%{pypi_name}/main.py
+%{python3} -m py_compile %{buildroot}%{python3_sitelib}/%{pypi_name}/app/__main__.py
 %{python3} -m py_compile %{buildroot}%{python3_sitelib}/%{pypi_name}/app/*.py
 %{python3} -m py_compile %{buildroot}%{python3_sitelib}/%{pypi_name}/app/clients/*.py
 %{python3} -m py_compile %{buildroot}%{python3_sitelib}/%{pypi_name}/app/menus/*.py
@@ -147,11 +157,39 @@ fi
 %{_bindir}/%{name}
 %{python3_sitelib}/%{pypi_name}/
 %{_datadir}/applications/%{name}.desktop
-%{_datadir}/icons/hicolor/*/apps/%{name}.webp
-%{_datadir}/pixmaps/%{name}.webp
+%{_datadir}/icons/hicolor/*/apps/%{name}.*
+%{_datadir}/pixmaps/%{name}.*
 %config(noreplace) %{_sysconfdir}/xdg/autostart/%{name}.desktop
 
 %changelog
+* Mon Mar 24 2026 John Boero <jboero@gmail.com> - 1.5.0-1
+- Refactored HCP into root-level menu with full cloud platform support
+- HCP Terraform: Organizations, Projects, Workspaces, Runs, Variables, Variable Sets, Teams
+- HCP Vault Secrets: Apps, Secrets CRUD, Sync Integrations, Usage
+- HCP Vault Dedicated: Cluster management, seal/unseal, admin tokens, snapshots, utilization
+- HCP Packer Registry: Buckets, Versions, Channels, Builds
+- HCP Boundary: Cluster management
+- HCP Consul Dedicated: Cluster management, snapshots, agent config
+- HCP Waypoint: Templates, Applications, Actions, Add-ons
+- HCP Network: HVN management, peerings, routes
+- OAuth2 client_credentials auth for HCP Cloud API (service principals)
+- Separate TFE token auth for HCP Terraform (app.terraform.io)
+- New HCP settings tab in Settings dialog
+- OpenTofu menu now local-only (HCP Terraform moved to HCP menu)
+- Added PATCH method to BaseHTTPClient
+
+* Mon Mar 24 2025 John Boero <jboero@gmail.com> - 1.4.4-1
+- Fixed RPM icon installation to auto-detect format (webp/png/svg)
+- Fixed Enable Secrets Engine dialog - filter None values from API payload
+- Improved error messages from OpenBao API (shows actual error not just HTTP code)
+- Added generic cloud secrets engine support (GCP, Azure, AliCloud, Oracle, DigitalOcean)
+
+* Thu Jan 02 2025 John Boero <jboero@gmail.com> - 1.4.3-1
+- Fixed icon paths to properly search hicolor theme directories
+- Added webp icon format support (smaller than PNG)
+- Icon search order: webp, png, svg
+- Added authors to About dialog: John Boero and Claude, buddies 4ever
+
 * Thu Jan 02 2025 John Boero <jboero@gmail.com> - 1.3.1-1
 - Added HCL syntax highlighting for Nomad job templates
 - Added JSON syntax highlighting for Consul service templates

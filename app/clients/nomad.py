@@ -114,11 +114,11 @@ class NomadClient(BaseHTTPClient):
         return self.post(f'/v1/job/{job_id}', {'Job': job_spec})
     
     def job_stop(self, job_id: str, purge: bool = False) -> APIResponse:
-        """Stop a job."""
+        """Stop a job. If purge=True, the job is fully deregistered."""
         params = self._add_params()
         if purge:
             params['purge'] = 'true'
-        return self.delete(f'/v1/job/{job_id}')
+        return self.delete(f'/v1/job/{job_id}', params=params)
     
     def job_force_periodic(self, job_id: str) -> APIResponse:
         """Force a periodic job to run."""

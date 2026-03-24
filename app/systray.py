@@ -22,6 +22,7 @@ from app.menus import (
     BoundaryMenuBuilder,
     OpenTofuMenuBuilder,
     PackerMenuBuilder,
+    HCPMenuBuilder,
 )
 
 
@@ -78,6 +79,9 @@ class OpenTongchiTray(QObject):
         self.packer_menu = PackerMenuBuilder(
             self.settings, self.process_manager, self
         )
+        self.hcp_menu = HCPMenuBuilder(
+            self.settings, self.process_manager, self
+        )
     
     def _create_tray_icon(self):
         """Create and configure the system tray icon."""
@@ -88,10 +92,10 @@ class OpenTongchiTray(QObject):
         if icon_path and os.path.exists(icon_path):
             self.tray.setIcon(QIcon(icon_path))
         else:
-            # Use a default icon
-            self.tray.setIcon(QIcon.fromTheme("applications-system"))
+            # Use spoon emoji as fallback icon
+            self.tray.setIcon(self._create_emoji_icon("🥄"))
         
-        self.tray.setToolTip("OpenTongchi - Infrastructure Manager")
+        self.tray.setToolTip("OpenTongchi (汤匙) - Infrastructure Manager")
         
         # Create context menu
         self._create_menu()
@@ -99,19 +103,67 @@ class OpenTongchiTray(QObject):
         # Connect signals
         self.tray.activated.connect(self._on_tray_activated)
     
+    def _create_emoji_icon(self, emoji: str, size: int = 64) -> QIcon:
+        """Create a QIcon from an emoji character."""
+        from PySide6.QtGui import QPixmap, QPainter, QFont
+        from PySide6.QtCore import Qt, QRect
+        
+        # Create a pixmap to render the emoji
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        
+        # Paint the emoji onto the pixmap
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+        
+        # Use a large font that supports emoji
+        font = QFont()
+        font.setPointSize(int(size * 0.7))
+        font.setFamily("Noto Color Emoji, Apple Color Emoji, Segoe UI Emoji, sans-serif")
+        painter.setFont(font)
+        
+        # Draw emoji centered
+        rect = QRect(0, 0, size, size)
+        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, emoji)
+        painter.end()
+        
+        return QIcon(pixmap)
+    
     def _find_icon(self) -> Optional[str]:
         """Find the application icon."""
-        # Check relative paths
-        possible_paths = [
-            "../img/opentongchi.webp",
-            "img/opentongchi.webp",
-            os.path.expanduser("~/.local/share/opentongchi/opentongchi.webp"),
-            "/usr/share/icons/hicolor/64x64/apps/opentongchi.webp",
+        # Supported icon formats in preference order
+        formats = ["webp", "png", "svg"]
+        
+        # Check paths in priority order
+        base_paths = [
+            # Package data path (works after pip install)
+            os.path.join(os.path.dirname(__file__), "img", "opentongchi"),
+            # Development paths
+            "../img/opentongchi",
+            "img/opentongchi",
+            # User local install
+            os.path.expanduser("~/.local/share/icons/hicolor/256x256/apps/opentongchi"),
+            os.path.expanduser("~/.local/share/icons/hicolor/128x128/apps/opentongchi"),
+            os.path.expanduser("~/.local/share/icons/hicolor/64x64/apps/opentongchi"),
+            os.path.expanduser("~/.local/share/icons/hicolor/48x48/apps/opentongchi"),
+            os.path.expanduser("~/.local/share/opentongchi/opentongchi"),
+            # System hicolor theme (standard locations)
+            "/usr/share/icons/hicolor/256x256/apps/opentongchi",
+            "/usr/share/icons/hicolor/128x128/apps/opentongchi",
+            "/usr/share/icons/hicolor/64x64/apps/opentongchi",
+            "/usr/share/icons/hicolor/48x48/apps/opentongchi",
+            # Pixmaps fallback
+            "/usr/share/pixmaps/opentongchi",
+            # Legacy flat path
+            "/usr/share/icons/opentongchi",
         ]
         
-        for path in possible_paths:
-            if os.path.exists(path):
-                return path
+        for base_path in base_paths:
+            for fmt in formats:
+                full_path = f"{base_path}.{fmt}"
+                if os.path.exists(full_path):
+                    return full_path
         
         return None
     
@@ -137,6 +189,9 @@ class OpenTongchiTray(QObject):
         self.menu.addMenu(self.boundary_menu.build_menu())
         self.menu.addMenu(self.opentofu_menu.build_menu())
         self.menu.addMenu(self.packer_menu.build_menu())
+        self.menu.addSeparator()
+        self.menu.addMenu(self.hcp_menu.build_menu())
+        self.menu.addMenu(self.hcp_menu.build_tf_menu())
         
         self.menu.addSeparator()
         
@@ -208,11 +263,15 @@ class OpenTongchiTray(QObject):
             self.boundary_menu,
             self.opentofu_menu,
             self.packer_menu,
+            self.hcp_menu,
         ]
         
         for builder in builders:
             builder.notification.connect(self._show_notification)
-        
+
+        # Rebuild menu when HCP org/project context changes
+        self.hcp_menu.context_changed.connect(self._create_menu)
+
         # Connect Nomad job status changes
         self.nomad_menu.job_status_changed.connect(self._on_nomad_job_changed)
     
@@ -334,6 +393,7 @@ class OpenTongchiTray(QObject):
         self.boundary_menu.refresh_client()
         self.opentofu_menu.refresh_clients()
         self.packer_menu.refresh_client()
+        self.hcp_menu.refresh_client()
         
         # Rebuild menu
         self._create_menu()
@@ -349,9 +409,11 @@ class OpenTongchiTray(QObject):
             f"""<h3>OpenTongchi (汤匙)</h3>
             <p>System Tray Manager for Open Source Infrastructure Tools</p>
             <p>Version {__version__}</p>
-            <p>Manage OpenBao, Consul, Nomad, Boundary, OpenTofu, and Packer 
-            from your system tray.</p>
+            <p>Manage OpenBao, Consul, Nomad, Boundary, OpenTofu, Packer, 
+            and HashiCorp Cloud Platform (HCP) from your system tray.</p>
             <p>Licensed under MPL-2.0</p>
+            <hr>
+            <p><b>Authors:</b> John Boero and Claude, buddies 4ever 🤝</p>
             <hr>
             <p><b>Features:</b></p>
             <ul>
@@ -361,6 +423,8 @@ class OpenTongchiTray(QObject):
                 <li>🚪 Boundary secure access</li>
                 <li>🏗️ OpenTofu infrastructure management</li>
                 <li>📦 Packer image building</li>
+                <li>☁️ HCP: Terraform, Vault Secrets, Vault Dedicated,
+                    Packer Registry, Boundary, Consul, Waypoint, HVN</li>
             </ul>
             """
         )

@@ -6,6 +6,7 @@ from .nomad import NomadMenuBuilder
 from .boundary import BoundaryMenuBuilder
 from .opentofu import OpenTofuMenuBuilder
 from .packer import PackerMenuBuilder
+from .hcp import HCPMenuBuilder
 
 __all__ = [
     'OpenBaoMenuBuilder',
@@ -14,4 +15,5 @@ __all__ = [
     'BoundaryMenuBuilder',
     'OpenTofuMenuBuilder',
     'PackerMenuBuilder',
+    'HCPMenuBuilder',
 ]

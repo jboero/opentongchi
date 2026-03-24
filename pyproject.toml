@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "opentongchi"
+dynamic = ["version"]
+description = "System Tray Manager for Open Source Infrastructure Tools"
+readme = "README.md"
+license = "MPL-2.0"
+requires-python = ">=3.10"
+authors = [
+    {name = "OpenTongchi Contributors"},
+]
+dependencies = [
+    "PySide6>=6.5.0",
+    "keyring>=24.0.0",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: System :: Systems Administration",
+]
+
+[project.urls]
+Homepage = "https://github.com/jboero/opentongchi"
+Repository = "https://github.com/jboero/opentongchi"
+Issues = "https://github.com/jboero/opentongchi/issues"
+
+[project.gui-scripts]
+opentongchi = "app.__main__:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "app.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.setuptools.package-data]
+app = ["img/*.webp", "img/*.png", "img/*.svg"]

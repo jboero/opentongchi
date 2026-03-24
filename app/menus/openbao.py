@@ -105,6 +105,9 @@ class OpenBaoMenuBuilder(QObject):
         items = []
         
         for path, info in mounts.items():
+            # Skip sys/ — it has its own dedicated System menu
+            if path.rstrip('/') == 'sys':
+                continue
             engine_type = info.get('type', 'unknown')
             icon = {'kv': '📦', 'transit': '🔒', 'pki': '📜', 'aws': '☁️',
                     'database': '🗄️', 'ssh': '🔑', 'totp': '⏱️', 'cubbyhole': '🧊'}.get(engine_type, '📁')
@@ -195,6 +198,8 @@ class OpenBaoMenuBuilder(QObject):
             self._build_totp_menu(menu, mount_path)
         elif engine_type == 'cubbyhole':
             self._build_cubbyhole_menu(menu, mount_path)
+        elif engine_type in ('gcp', 'azure', 'alicloud', 'oracle', 'digitalocean'):
+            self._build_cloud_secrets_menu(menu, mount_path, engine_type)
         else:
             # Generic secrets engine - provide basic CRUD
             self._build_generic_secrets_menu(menu, mount_path, engine_type)
@@ -393,46 +398,823 @@ class OpenBaoMenuBuilder(QObject):
     
     def _build_database_menu(self, menu: QMenu, mount_path: str):
         """Build database secrets engine menu."""
-        config_menu = AsyncMenu("⚙️ Connections", lambda: self._load_generic_list(mount_path, 'config'))
-        config_menu.set_item_callback(lambda d: self._show_database_config(mount_path, d))
+        # Connections submenu with CRUD
+        config_menu = AsyncMenu("⚙️ Connections", lambda: self._load_database_connections(mount_path))
+        config_menu.set_submenu_factory(lambda t, d: self._create_db_connection_submenu(mount_path, d))
+        config_menu.set_new_item_callback(lambda: self._create_database_connection(mount_path), "➕ New Connection...")
         menu.addMenu(config_menu)
         
-        roles_menu = AsyncMenu("👤 Roles", lambda: self._load_generic_list(mount_path, 'roles'))
-        roles_menu.set_item_callback(lambda d: self._show_database_role(mount_path, d))
+        # Dynamic roles submenu with CRUD and per-role credential generation
+        roles_menu = AsyncMenu("👤 Dynamic Roles", lambda: self._load_database_roles(mount_path))
+        roles_menu.set_submenu_factory(lambda t, d: self._create_db_role_submenu(mount_path, d, is_static=False))
+        roles_menu.set_new_item_callback(lambda: self._create_database_role(mount_path), "➕ New Role...")
         menu.addMenu(roles_menu)
+        
+        # Static roles submenu
+        static_roles_menu = AsyncMenu("📌 Static Roles", lambda: self._load_database_static_roles(mount_path))
+        static_roles_menu.set_submenu_factory(lambda t, d: self._create_db_role_submenu(mount_path, d, is_static=True))
+        static_roles_menu.set_new_item_callback(lambda: self._create_database_static_role(mount_path), "➕ New Static Role...")
+        menu.addMenu(static_roles_menu)
+    
+    def _load_database_connections(self, mount_path: str) -> list:
+        """Load database connections."""
+        response = self.client.database_list_connections(mount_path)
+        if not response.ok:
+            if response.status_code == 404:
+                return []
+            raise Exception(response.error or "Failed to list connections")
+        keys = response.data.get('data', {}).get('keys', []) if response.data else []
+        return [(f"🔌 {k}", k) for k in keys]
+    
+    def _load_database_roles(self, mount_path: str) -> list:
+        """Load database dynamic roles."""
+        response = self.client.database_list_roles(mount_path)
+        if not response.ok:
+            if response.status_code == 404:
+                return []
+            raise Exception(response.error or "Failed to list roles")
+        keys = response.data.get('data', {}).get('keys', []) if response.data else []
+        return [(f"👤 {k}", k) for k in keys]
+    
+    def _load_database_static_roles(self, mount_path: str) -> list:
+        """Load database static roles."""
+        response = self.client.database_list_static_roles(mount_path)
+        if not response.ok:
+            if response.status_code == 404:
+                return []
+            raise Exception(response.error or "Failed to list static roles")
+        keys = response.data.get('data', {}).get('keys', []) if response.data else []
+        return [(f"📌 {k}", k) for k in keys]
+    
+    def _create_db_connection_submenu(self, mount_path: str, name: str) -> QMenu:
+        """Create submenu for a database connection."""
+        menu = QMenu(name)
+        
+        view = menu.addAction("👁️ View Configuration")
+        view.triggered.connect(lambda: self._show_database_config(mount_path, name))
+        
+        edit = menu.addAction("✏️ Edit Connection")
+        edit.triggered.connect(lambda: self._edit_database_connection(mount_path, name))
         
         menu.addSeparator()
         
+        reset = menu.addAction("🔄 Reset Connection")
+        reset.triggered.connect(lambda: self._reset_database_connection(mount_path, name))
+        
+        rotate = menu.addAction("🔑 Rotate Root Credentials")
+        rotate.triggered.connect(lambda: self._rotate_database_root(mount_path, name))
+        
+        menu.addSeparator()
+        
+        delete = menu.addAction("🗑️ Delete Connection")
+        delete.triggered.connect(lambda: self._delete_database_connection(mount_path, name))
+        
+        return menu
+    
+    def _create_db_role_submenu(self, mount_path: str, name: str, is_static: bool = False) -> QMenu:
+        """Create submenu for a database role."""
+        menu = QMenu(name)
+        
+        # Generate credentials - the main feature!
         creds = menu.addAction("🔑 Generate Credentials")
-        creds.triggered.connect(lambda: self._generate_db_creds(mount_path))
+        if is_static:
+            creds.triggered.connect(lambda: self._get_database_static_creds(mount_path, name))
+        else:
+            creds.triggered.connect(lambda: self._generate_database_creds(mount_path, name))
+        
+        menu.addSeparator()
+        
+        view = menu.addAction("👁️ View Role")
+        if is_static:
+            view.triggered.connect(lambda: self._show_database_static_role(mount_path, name))
+        else:
+            view.triggered.connect(lambda: self._show_database_role(mount_path, name))
+        
+        edit = menu.addAction("✏️ Edit Role")
+        if is_static:
+            edit.triggered.connect(lambda: self._edit_database_static_role(mount_path, name))
+        else:
+            edit.triggered.connect(lambda: self._edit_database_role(mount_path, name))
+        
+        if is_static:
+            menu.addSeparator()
+            rotate = menu.addAction("🔄 Rotate Credentials Now")
+            rotate.triggered.connect(lambda: self._rotate_database_static_role(mount_path, name))
+        
+        menu.addSeparator()
+        
+        delete = menu.addAction("🗑️ Delete Role")
+        if is_static:
+            delete.triggered.connect(lambda: self._delete_database_static_role(mount_path, name))
+        else:
+            delete.triggered.connect(lambda: self._delete_database_role(mount_path, name))
+        
+        return menu
     
     def _build_aws_menu(self, menu: QMenu, mount_path: str):
         """Build AWS secrets engine menu."""
-        roles_menu = AsyncMenu("👤 Roles", lambda: self._load_generic_list(mount_path, 'roles'))
-        roles_menu.set_item_callback(lambda d: self._show_aws_role(mount_path, d))
+        # Root config
+        config_menu = QMenu("⚙️ Configuration")
+        
+        view_config = config_menu.addAction("👁️ View Root Config")
+        view_config.triggered.connect(lambda: self._show_aws_config(mount_path))
+        
+        edit_config = config_menu.addAction("✏️ Configure Root Credentials")
+        edit_config.triggered.connect(lambda: self._edit_aws_config(mount_path))
+        
+        rotate_root = config_menu.addAction("🔄 Rotate Root Credentials")
+        rotate_root.triggered.connect(lambda: self._rotate_aws_root(mount_path))
+        
+        menu.addMenu(config_menu)
+        
+        # Roles with full CRUD
+        roles_menu = AsyncMenu("👤 Roles", lambda: self._load_aws_roles(mount_path))
+        roles_menu.set_submenu_factory(lambda t, d: self._create_aws_role_submenu(mount_path, d))
+        roles_menu.set_new_item_callback(lambda: self._create_aws_role(mount_path), "➕ New Role...")
         menu.addMenu(roles_menu)
+        
+        # STS Roles (for assumed_role credential types)
+        sts_menu = AsyncMenu("🎫 STS Roles", lambda: self._load_generic_list(mount_path, 'sts'))
+        sts_menu.set_submenu_factory(lambda t, d: self._create_aws_sts_role_submenu(mount_path, d))
+        menu.addMenu(sts_menu)
         
         menu.addSeparator()
         
+        # Lease config
+        lease_config = menu.addAction("⏱️ Lease Configuration")
+        lease_config.triggered.connect(lambda: self._show_aws_lease_config(mount_path))
+    
+    def _load_aws_roles(self, mount_path: str) -> list:
+        """Load AWS roles."""
+        response = self.client.api_list(f"{mount_path}/roles")
+        if not response.ok:
+            if response.status_code == 404:
+                return []
+            raise Exception(response.error or "Failed to list roles")
+        keys = response.data.get('data', {}).get('keys', []) if response.data else []
+        return [(f"👤 {k}", k) for k in keys]
+    
+    def _create_aws_role_submenu(self, mount_path: str, name: str) -> QMenu:
+        """Create submenu for an AWS role."""
+        menu = QMenu(name)
+        
+        # Generate credentials - main feature
         creds = menu.addAction("🔑 Generate Credentials")
-        creds.triggered.connect(lambda: self._generate_aws_creds(mount_path))
+        creds.triggered.connect(lambda: self._generate_aws_creds_for_role(mount_path, name))
         
         sts = menu.addAction("🎫 Generate STS Credentials")
-        sts.triggered.connect(lambda: self._generate_aws_sts(mount_path))
-    
-    def _build_ssh_menu(self, menu: QMenu, mount_path: str):
-        """Build SSH secrets engine menu."""
-        roles_menu = AsyncMenu("👤 Roles", lambda: self._load_generic_list(mount_path, 'roles'))
-        roles_menu.set_item_callback(lambda d: self._show_ssh_role(mount_path, d))
-        menu.addMenu(roles_menu)
+        sts.triggered.connect(lambda: self._generate_aws_sts_for_role(mount_path, name))
         
         menu.addSeparator()
         
-        sign = menu.addAction("✍️ Sign SSH Key")
-        sign.triggered.connect(lambda: self._sign_ssh_key(mount_path))
+        view = menu.addAction("👁️ View Role")
+        view.triggered.connect(lambda: self._show_aws_role(mount_path, name))
         
+        edit = menu.addAction("✏️ Edit Role")
+        edit.triggered.connect(lambda: self._edit_aws_role(mount_path, name))
+        
+        menu.addSeparator()
+        
+        delete = menu.addAction("🗑️ Delete Role")
+        delete.triggered.connect(lambda: self._delete_aws_role(mount_path, name))
+        
+        return menu
+    
+    def _create_aws_sts_role_submenu(self, mount_path: str, name: str) -> QMenu:
+        """Create submenu for an AWS STS role."""
+        menu = QMenu(name)
+        
+        creds = menu.addAction("🎫 Generate STS Credentials")
+        creds.triggered.connect(lambda: self._generate_aws_sts_for_role(mount_path, name))
+        
+        view = menu.addAction("👁️ View Role")
+        view.triggered.connect(lambda: self._show_aws_sts_role(mount_path, name))
+        
+        return menu
+    
+    def _show_aws_config(self, mount_path: str):
+        """View AWS root configuration."""
+        response = self.client.api_read(f"{mount_path}/config/root")
+        if response.ok:
+            dialog = JsonEditorDialog("AWS Root Config", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.information(None, "Info", "No root configuration found")
+    
+    def _edit_aws_config(self, mount_path: str):
+        """Edit AWS root configuration."""
+        template = {
+            'access_key': '',
+            'secret_key': '',
+            'region': 'us-east-1',
+            'iam_endpoint': '',
+            'sts_endpoint': '',
+            'max_retries': -1,
+        }
+        response = self.client.api_read(f"{mount_path}/config/root")
+        if response.ok:
+            data = response.data.get('data', response.data)
+            template.update(data)
+        
+        dialog = JsonEditorDialog("AWS Root Config", template, readonly=False)
+        dialog.saved.connect(lambda d: self._save_aws_config(mount_path, d))
+        dialog.exec()
+    
+    def _save_aws_config(self, mount_path: str, data: Dict):
+        """Save AWS root configuration."""
+        response = self.client.api_write(f"{mount_path}/config/root", data)
+        if response.ok:
+            self.notification.emit("Config Saved", "AWS root configuration saved")
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _rotate_aws_root(self, mount_path: str):
+        """Rotate AWS root credentials."""
+        reply = QMessageBox.question(None, "Rotate Root",
+                                     "Rotate AWS root credentials?\nThis will create new access keys.",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            response = self.client.api_write(f"{mount_path}/config/rotate-root", {})
+            if response.ok:
+                self.notification.emit("Root Rotated", "AWS root credentials rotated")
+                # Show the new access key
+                dialog = JsonEditorDialog("New Root Credentials", response.data, readonly=True)
+                dialog.exec()
+            else:
+                QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _show_aws_role(self, mount_path: str, name: str):
+        """View AWS role."""
+        response = self.client.api_read(f"{mount_path}/roles/{name}")
+        if response.ok:
+            dialog = JsonEditorDialog(f"AWS Role: {name}", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _edit_aws_role(self, mount_path: str, name: str):
+        """Edit AWS role."""
+        from app.dialogs import AWSRoleDialog
+        response = self.client.api_read(f"{mount_path}/roles/{name}")
+        if response.ok:
+            data = response.data.get('data', response.data)
+            dialog = AWSRoleDialog(name=name, config=data, is_new=False)
+            dialog.saved.connect(lambda n, d: self._save_aws_role(mount_path, n, d))
+            dialog.exec()
+    
+    def _create_aws_role(self, mount_path: str):
+        """Create a new AWS role."""
+        from app.dialogs import AWSRoleDialog
+        dialog = AWSRoleDialog(is_new=True)
+        dialog.saved.connect(lambda name, d: self._save_aws_role(mount_path, name, d))
+        dialog.exec()
+    
+    def _save_aws_role(self, mount_path: str, name: str, data: Dict):
+        """Save AWS role."""
+        response = self.client.api_write(f"{mount_path}/roles/{name}", data)
+        if response.ok:
+            self.notification.emit("Role Saved", f"AWS role {name} saved")
+        else:
+            QMessageBox.warning(None, "Error", f"Failed to save role: {response.error}")
+    
+    def _delete_aws_role(self, mount_path: str, name: str):
+        """Delete AWS role."""
+        reply = QMessageBox.question(None, "Delete Role",
+                                     f"Delete AWS role '{name}'?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            response = self.client.api_delete(f"{mount_path}/roles/{name}")
+            if response.ok:
+                self.notification.emit("Role Deleted", f"AWS role {name} deleted")
+            else:
+                QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _show_aws_sts_role(self, mount_path: str, name: str):
+        """View AWS STS role."""
+        response = self.client.api_read(f"{mount_path}/sts/{name}")
+        if response.ok:
+            dialog = JsonEditorDialog(f"AWS STS Role: {name}", response.data, readonly=True)
+            dialog.exec()
+    
+    def _generate_aws_creds_for_role(self, mount_path: str, role_name: str):
+        """Generate AWS credentials for a specific role."""
+        response = self.client.api_read(f"{mount_path}/creds/{role_name}")
+        if response.ok:
+            creds_data = response.data.get('data', response.data)
+            lease_info = {
+                'lease_id': response.data.get('lease_id', ''),
+                'lease_duration': response.data.get('lease_duration', 0),
+                **creds_data
+            }
+            dialog = JsonEditorDialog(f"AWS Credentials: {role_name}", lease_info, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed to generate credentials: {response.error}")
+    
+    def _generate_aws_sts_for_role(self, mount_path: str, role_name: str):
+        """Generate AWS STS credentials for a specific role."""
+        response = self.client.api_read(f"{mount_path}/sts/{role_name}")
+        if response.ok:
+            creds_data = response.data.get('data', response.data)
+            lease_info = {
+                'lease_id': response.data.get('lease_id', ''),
+                'lease_duration': response.data.get('lease_duration', 0),
+                **creds_data
+            }
+            dialog = JsonEditorDialog(f"AWS STS Credentials: {role_name}", lease_info, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed to generate STS credentials: {response.error}")
+    
+    def _show_aws_lease_config(self, mount_path: str):
+        """View and edit AWS lease configuration."""
+        response = self.client.api_read(f"{mount_path}/config/lease")
+        if response.ok:
+            data = response.data.get('data', response.data)
+        else:
+            data = {'lease': '30m', 'lease_max': '24h'}
+        
+        dialog = JsonEditorDialog("AWS Lease Config", data, readonly=False)
+        dialog.saved.connect(lambda d: self._save_aws_lease_config(mount_path, d))
+        dialog.exec()
+    
+    def _save_aws_lease_config(self, mount_path: str, data: Dict):
+        """Save AWS lease configuration."""
+        response = self.client.api_write(f"{mount_path}/config/lease", data)
+        if response.ok:
+            self.notification.emit("Config Saved", "AWS lease configuration saved")
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    # ==================== Generic Cloud Secrets Engine ====================
+    
+    # Cloud provider configurations
+    CLOUD_PROVIDERS = {
+        'gcp': {
+            'name': 'Google Cloud',
+            'icon': '☁️',
+            'config_fields': {
+                'credentials': {'type': 'text', 'label': 'Service Account JSON', 'required': True},
+                'ttl': {'type': 'duration', 'label': 'Default TTL', 'default': '1h'},
+                'max_ttl': {'type': 'duration', 'label': 'Max TTL', 'default': '24h'},
+            },
+            'role_types': ['access_token', 'service_account_key'],
+            'creds_endpoint': 'token',
+        },
+        'azure': {
+            'name': 'Microsoft Azure',
+            'icon': '🔷',
+            'config_fields': {
+                'subscription_id': {'type': 'string', 'label': 'Subscription ID', 'required': True},
+                'tenant_id': {'type': 'string', 'label': 'Tenant ID', 'required': True},
+                'client_id': {'type': 'string', 'label': 'Client ID'},
+                'client_secret': {'type': 'password', 'label': 'Client Secret'},
+                'environment': {'type': 'string', 'label': 'Environment', 'default': 'AzurePublicCloud'},
+            },
+            'role_types': ['azure_role'],
+            'creds_endpoint': 'creds',
+        },
+        'alicloud': {
+            'name': 'Alibaba Cloud',
+            'icon': '🌏',
+            'config_fields': {
+                'access_key': {'type': 'string', 'label': 'Access Key', 'required': True},
+                'secret_key': {'type': 'password', 'label': 'Secret Key', 'required': True},
+                'region': {'type': 'string', 'label': 'Region'},
+            },
+            'role_types': ['ram_role', 'assume_role'],
+            'creds_endpoint': 'creds',
+        },
+        'oracle': {
+            'name': 'Oracle Cloud',
+            'icon': '🔴',
+            'config_fields': {
+                'user_ocid': {'type': 'string', 'label': 'User OCID', 'required': True},
+                'tenancy_ocid': {'type': 'string', 'label': 'Tenancy OCID', 'required': True},
+                'fingerprint': {'type': 'string', 'label': 'Fingerprint', 'required': True},
+                'private_key': {'type': 'text', 'label': 'Private Key', 'required': True},
+                'region': {'type': 'string', 'label': 'Region'},
+            },
+            'role_types': ['api_key'],
+            'creds_endpoint': 'creds',
+        },
+        'digitalocean': {
+            'name': 'DigitalOcean',
+            'icon': '🌊',
+            'config_fields': {
+                'token': {'type': 'password', 'label': 'API Token', 'required': True},
+            },
+            'role_types': ['personal_access_token'],
+            'creds_endpoint': 'creds',
+        },
+    }
+    
+    def _build_cloud_secrets_menu(self, menu: QMenu, mount_path: str, cloud_type: str):
+        """Build a generic cloud secrets engine menu (GCP, Azure, AliCloud, Oracle, DigitalOcean)."""
+        provider = self.CLOUD_PROVIDERS.get(cloud_type, {})
+        provider_name = provider.get('name', cloud_type.upper())
+        icon = provider.get('icon', '☁️')
+        
+        # Root config
+        config_menu = QMenu(f"⚙️ Configuration")
+        
+        view_config = config_menu.addAction("👁️ View Config")
+        view_config.triggered.connect(lambda: self._show_cloud_config(mount_path, cloud_type))
+        
+        edit_config = config_menu.addAction("✏️ Configure Credentials")
+        edit_config.triggered.connect(lambda: self._edit_cloud_config(mount_path, cloud_type))
+        
+        if cloud_type in ('gcp', 'azure'):
+            rotate_root = config_menu.addAction("🔄 Rotate Root Credentials")
+            rotate_root.triggered.connect(lambda: self._rotate_cloud_root(mount_path, cloud_type))
+        
+        menu.addMenu(config_menu)
+        
+        # Roles with full CRUD
+        roles_menu = AsyncMenu("👤 Roles", lambda: self._load_cloud_roles(mount_path))
+        roles_menu.set_submenu_factory(lambda t, d: self._create_cloud_role_submenu(mount_path, d, cloud_type))
+        roles_menu.set_new_item_callback(lambda: self._create_cloud_role(mount_path, cloud_type), "➕ New Role...")
+        menu.addMenu(roles_menu)
+        
+        # Rolesets (GCP specific)
+        if cloud_type == 'gcp':
+            rolesets_menu = AsyncMenu("📋 Rolesets", lambda: self._load_cloud_rolesets(mount_path))
+            rolesets_menu.set_submenu_factory(lambda t, d: self._create_cloud_roleset_submenu(mount_path, d))
+            rolesets_menu.set_new_item_callback(lambda: self._create_cloud_roleset(mount_path), "➕ New Roleset...")
+            menu.addMenu(rolesets_menu)
+        
+        menu.addSeparator()
+        
+        # Quick generate credentials
+        quick_creds = menu.addAction(f"{icon} Generate Credentials...")
+        quick_creds.triggered.connect(lambda: self._generate_cloud_creds_prompt(mount_path, cloud_type))
+    
+    def _load_cloud_roles(self, mount_path: str) -> list:
+        """Load cloud roles."""
+        response = self.client.api_list(f"{mount_path}/roles")
+        if not response.ok:
+            if response.status_code == 404:
+                return []
+            raise Exception(response.error or "Failed to list roles")
+        keys = response.data.get('data', {}).get('keys', []) if response.data else []
+        return [(f"👤 {k}", k) for k in keys]
+    
+    def _load_cloud_rolesets(self, mount_path: str) -> list:
+        """Load cloud rolesets (GCP)."""
+        response = self.client.api_list(f"{mount_path}/rolesets")
+        if not response.ok:
+            if response.status_code == 404:
+                return []
+            raise Exception(response.error or "Failed to list rolesets")
+        keys = response.data.get('data', {}).get('keys', []) if response.data else []
+        return [(f"📋 {k}", k) for k in keys]
+    
+    def _create_cloud_role_submenu(self, mount_path: str, name: str, cloud_type: str) -> QMenu:
+        """Create submenu for a cloud role."""
+        menu = QMenu(name)
+        provider = self.CLOUD_PROVIDERS.get(cloud_type, {})
+        creds_endpoint = provider.get('creds_endpoint', 'creds')
+        
+        # Generate credentials - main feature
+        creds = menu.addAction("🔑 Generate Credentials")
+        creds.triggered.connect(lambda: self._generate_cloud_creds(mount_path, name, cloud_type, creds_endpoint))
+        
+        menu.addSeparator()
+        
+        view = menu.addAction("👁️ View Role")
+        view.triggered.connect(lambda: self._show_cloud_role(mount_path, name))
+        
+        edit = menu.addAction("✏️ Edit Role")
+        edit.triggered.connect(lambda: self._edit_cloud_role(mount_path, name, cloud_type))
+        
+        menu.addSeparator()
+        
+        delete = menu.addAction("🗑️ Delete Role")
+        delete.triggered.connect(lambda: self._delete_cloud_role(mount_path, name))
+        
+        return menu
+    
+    def _create_cloud_roleset_submenu(self, mount_path: str, name: str) -> QMenu:
+        """Create submenu for a GCP roleset."""
+        menu = QMenu(name)
+        
+        # Generate access token
+        token = menu.addAction("🔑 Generate Access Token")
+        token.triggered.connect(lambda: self._generate_cloud_creds(mount_path, name, 'gcp', 'token'))
+        
+        # Generate service account key
+        key = menu.addAction("🔐 Generate Service Account Key")
+        key.triggered.connect(lambda: self._generate_cloud_creds(mount_path, name, 'gcp', 'key'))
+        
+        menu.addSeparator()
+        
+        view = menu.addAction("👁️ View Roleset")
+        view.triggered.connect(lambda: self._show_cloud_roleset(mount_path, name))
+        
+        edit = menu.addAction("✏️ Edit Roleset")
+        edit.triggered.connect(lambda: self._edit_cloud_roleset(mount_path, name))
+        
+        menu.addSeparator()
+        
+        rotate = menu.addAction("🔄 Rotate Service Account")
+        rotate.triggered.connect(lambda: self._rotate_cloud_roleset(mount_path, name))
+        
+        rotate_key = menu.addAction("🔄 Rotate Service Account Key")
+        rotate_key.triggered.connect(lambda: self._rotate_cloud_roleset_key(mount_path, name))
+        
+        menu.addSeparator()
+        
+        delete = menu.addAction("🗑️ Delete Roleset")
+        delete.triggered.connect(lambda: self._delete_cloud_roleset(mount_path, name))
+        
+        return menu
+    
+    def _show_cloud_config(self, mount_path: str, cloud_type: str):
+        """View cloud configuration."""
+        response = self.client.api_read(f"{mount_path}/config")
+        if response.ok:
+            dialog = JsonEditorDialog(f"{cloud_type.upper()} Config", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.information(None, "Info", "No configuration found")
+    
+    def _edit_cloud_config(self, mount_path: str, cloud_type: str):
+        """Edit cloud configuration."""
+        provider = self.CLOUD_PROVIDERS.get(cloud_type, {})
+        config_fields = provider.get('config_fields', {})
+        
+        # Build template from provider config
+        template = {}
+        for field, info in config_fields.items():
+            template[field] = info.get('default', '')
+        
+        # Try to load current config
+        response = self.client.api_read(f"{mount_path}/config")
+        if response.ok:
+            data = response.data.get('data', response.data)
+            template.update(data)
+        
+        dialog = JsonEditorDialog(f"{cloud_type.upper()} Config", template, readonly=False)
+        dialog.saved.connect(lambda d: self._save_cloud_config(mount_path, d))
+        dialog.exec()
+    
+    def _save_cloud_config(self, mount_path: str, data: Dict):
+        """Save cloud configuration."""
+        response = self.client.api_write(f"{mount_path}/config", data)
+        if response.ok:
+            self.notification.emit("Config Saved", "Cloud configuration saved")
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _rotate_cloud_root(self, mount_path: str, cloud_type: str):
+        """Rotate cloud root credentials."""
+        reply = QMessageBox.question(None, "Rotate Root",
+                                     f"Rotate {cloud_type.upper()} root credentials?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            response = self.client.api_write(f"{mount_path}/config/rotate-root", {})
+            if response.ok:
+                self.notification.emit("Root Rotated", f"{cloud_type.upper()} root credentials rotated")
+            else:
+                QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _show_cloud_role(self, mount_path: str, name: str):
+        """View cloud role."""
+        response = self.client.api_read(f"{mount_path}/roles/{name}")
+        if response.ok:
+            dialog = JsonEditorDialog(f"Cloud Role: {name}", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _edit_cloud_role(self, mount_path: str, name: str, cloud_type: str):
+        """Edit cloud role."""
+        response = self.client.api_read(f"{mount_path}/roles/{name}")
+        if response.ok:
+            data = response.data.get('data', response.data)
+            dialog = JsonEditorDialog(f"Edit Cloud Role: {name}", data, readonly=False)
+            dialog.saved.connect(lambda d: self._save_cloud_role(mount_path, name, d))
+            dialog.exec()
+    
+    def _create_cloud_role(self, mount_path: str, cloud_type: str):
+        """Create a new cloud role."""
+        from app.dialogs import CloudRoleDialog
+        dialog = CloudRoleDialog(cloud_type=cloud_type, is_new=True)
+        dialog.saved.connect(lambda name, d: self._save_cloud_role(mount_path, name, d))
+        dialog.exec()
+    
+    def _save_cloud_role(self, mount_path: str, name: str, data: Dict):
+        """Save cloud role."""
+        response = self.client.api_write(f"{mount_path}/roles/{name}", data)
+        if response.ok:
+            self.notification.emit("Role Saved", f"Cloud role {name} saved")
+        else:
+            QMessageBox.warning(None, "Error", f"Failed to save role: {response.error}")
+    
+    def _delete_cloud_role(self, mount_path: str, name: str):
+        """Delete cloud role."""
+        reply = QMessageBox.question(None, "Delete Role",
+                                     f"Delete cloud role '{name}'?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            response = self.client.api_delete(f"{mount_path}/roles/{name}")
+            if response.ok:
+                self.notification.emit("Role Deleted", f"Cloud role {name} deleted")
+            else:
+                QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _show_cloud_roleset(self, mount_path: str, name: str):
+        """View GCP roleset."""
+        response = self.client.api_read(f"{mount_path}/rolesets/{name}")
+        if response.ok:
+            dialog = JsonEditorDialog(f"GCP Roleset: {name}", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _edit_cloud_roleset(self, mount_path: str, name: str):
+        """Edit GCP roleset."""
+        response = self.client.api_read(f"{mount_path}/rolesets/{name}")
+        if response.ok:
+            data = response.data.get('data', response.data)
+            dialog = JsonEditorDialog(f"Edit GCP Roleset: {name}", data, readonly=False)
+            dialog.saved.connect(lambda d: self._save_cloud_roleset(mount_path, name, d))
+            dialog.exec()
+    
+    def _create_cloud_roleset(self, mount_path: str):
+        """Create a new GCP roleset."""
+        name, ok = QInputDialog.getText(None, "New GCP Roleset", "Roleset name:")
+        if not ok or not name:
+            return
+        
+        template = {
+            'project': '',
+            'secret_type': 'access_token',  # or 'service_account_key'
+            'bindings': '# IAM bindings in HCL format\nresource "//cloudresourcemanager.googleapis.com/projects/PROJECT_ID" {\n  roles = ["roles/viewer"]\n}',
+            'token_scopes': ['https://www.googleapis.com/auth/cloud-platform'],
+        }
+        
+        dialog = JsonEditorDialog(f"New GCP Roleset: {name}", template, readonly=False)
+        dialog.saved.connect(lambda d: self._save_cloud_roleset(mount_path, name, d))
+        dialog.exec()
+    
+    def _save_cloud_roleset(self, mount_path: str, name: str, data: Dict):
+        """Save GCP roleset."""
+        response = self.client.api_write(f"{mount_path}/rolesets/{name}", data)
+        if response.ok:
+            self.notification.emit("Roleset Saved", f"GCP roleset {name} saved")
+        else:
+            QMessageBox.warning(None, "Error", f"Failed to save roleset: {response.error}")
+    
+    def _delete_cloud_roleset(self, mount_path: str, name: str):
+        """Delete GCP roleset."""
+        reply = QMessageBox.question(None, "Delete Roleset",
+                                     f"Delete GCP roleset '{name}'?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            response = self.client.api_delete(f"{mount_path}/rolesets/{name}")
+            if response.ok:
+                self.notification.emit("Roleset Deleted", f"GCP roleset {name} deleted")
+            else:
+                QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _rotate_cloud_roleset(self, mount_path: str, name: str):
+        """Rotate GCP roleset service account."""
+        reply = QMessageBox.question(None, "Rotate Service Account",
+                                     f"Rotate service account for roleset '{name}'?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            response = self.client.api_write(f"{mount_path}/rolesets/{name}/rotate", {})
+            if response.ok:
+                self.notification.emit("Rotated", f"Service account rotated for {name}")
+            else:
+                QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _rotate_cloud_roleset_key(self, mount_path: str, name: str):
+        """Rotate GCP roleset service account key."""
+        reply = QMessageBox.question(None, "Rotate Key",
+                                     f"Rotate service account key for roleset '{name}'?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            response = self.client.api_write(f"{mount_path}/rolesets/{name}/rotate-key", {})
+            if response.ok:
+                self.notification.emit("Key Rotated", f"Service account key rotated for {name}")
+            else:
+                QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _generate_cloud_creds(self, mount_path: str, role_name: str, cloud_type: str, endpoint: str):
+        """Generate credentials for a cloud role/roleset."""
+        # Determine the correct path
+        if endpoint in ('token', 'key'):
+            # GCP roleset endpoints
+            path = f"{mount_path}/{endpoint}/{role_name}"
+        else:
+            path = f"{mount_path}/{endpoint}/{role_name}"
+        
+        response = self.client.api_read(path)
+        if response.ok:
+            creds_data = response.data.get('data', response.data)
+            lease_info = {
+                'lease_id': response.data.get('lease_id', ''),
+                'lease_duration': response.data.get('lease_duration', 0),
+                **creds_data
+            }
+            dialog = JsonEditorDialog(f"{cloud_type.upper()} Credentials: {role_name}", lease_info, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed to generate credentials: {response.error}")
+    
+    def _generate_cloud_creds_prompt(self, mount_path: str, cloud_type: str):
+        """Prompt for role/roleset and generate credentials."""
+        # List available roles
+        roles = []
+        response = self.client.api_list(f"{mount_path}/roles")
+        if response.ok:
+            roles.extend(response.data.get('data', {}).get('keys', []))
+        
+        if cloud_type == 'gcp':
+            response = self.client.api_list(f"{mount_path}/rolesets")
+            if response.ok:
+                rolesets = response.data.get('data', {}).get('keys', [])
+                roles.extend([f"roleset:{r}" for r in rolesets])
+        
+        if not roles:
+            QMessageBox.warning(None, "No Roles", "No roles or rolesets configured")
+            return
+        
+        role, ok = QInputDialog.getItem(None, "Generate Credentials", "Select role:", roles, 0, False)
+        if ok and role:
+            if role.startswith('roleset:'):
+                roleset_name = role.replace('roleset:', '')
+                self._generate_cloud_creds(mount_path, roleset_name, cloud_type, 'token')
+            else:
+                provider = self.CLOUD_PROVIDERS.get(cloud_type, {})
+                endpoint = provider.get('creds_endpoint', 'creds')
+                self._generate_cloud_creds(mount_path, role, cloud_type, endpoint)
+
+    def _build_ssh_menu(self, menu: QMenu, mount_path: str):
+        """Build SSH secrets engine menu."""
+        # CA Configuration
+        ca_menu = QMenu("🔐 CA Configuration")
+        
+        view_ca = ca_menu.addAction("👁️ View Public Key")
+        view_ca.triggered.connect(lambda: self._show_ssh_ca(mount_path))
+        
+        configure_ca = ca_menu.addAction("⚙️ Configure CA")
+        configure_ca.triggered.connect(lambda: self._configure_ssh_ca(mount_path))
+        
+        delete_ca = ca_menu.addAction("🗑️ Delete CA")
+        delete_ca.triggered.connect(lambda: self._delete_ssh_ca(mount_path))
+        
+        menu.addMenu(ca_menu)
+        
+        # Roles submenu with CRUD and per-role operations
+        roles_menu = AsyncMenu("👤 Roles", lambda: self._load_ssh_roles(mount_path))
+        roles_menu.set_submenu_factory(lambda t, d: self._create_ssh_role_submenu(mount_path, d))
+        roles_menu.set_new_item_callback(lambda: self._create_ssh_role(mount_path), "➕ New Role...")
+        menu.addMenu(roles_menu)
+        
+        # Zero-address config
+        menu.addSeparator()
+        zeroaddr = menu.addAction("🌐 Zero-Address Config")
+        zeroaddr.triggered.connect(lambda: self._show_ssh_zeroaddress(mount_path))
+    
+    def _load_ssh_roles(self, mount_path: str) -> list:
+        """Load SSH roles."""
+        response = self.client.ssh_list_roles(mount_path)
+        if not response.ok:
+            if response.status_code == 404:
+                return []
+            raise Exception(response.error or "Failed to list roles")
+        keys = response.data.get('data', {}).get('keys', []) if response.data else []
+        return [(f"🔑 {k}", k) for k in keys]
+    
+    def _create_ssh_role_submenu(self, mount_path: str, name: str) -> QMenu:
+        """Create submenu for an SSH role."""
+        menu = QMenu(name)
+        
+        # Sign key - main feature
+        sign = menu.addAction("✍️ Sign SSH Key")
+        sign.triggered.connect(lambda: self._sign_ssh_key_for_role(mount_path, name))
+        
+        # Issue credentials
         issue = menu.addAction("🔑 Issue Credentials")
-        issue.triggered.connect(lambda: self._issue_ssh_creds(mount_path))
+        issue.triggered.connect(lambda: self._issue_ssh_creds_for_role(mount_path, name))
+        
+        menu.addSeparator()
+        
+        view = menu.addAction("👁️ View Role")
+        view.triggered.connect(lambda: self._show_ssh_role(mount_path, name))
+        
+        edit = menu.addAction("✏️ Edit Role")
+        edit.triggered.connect(lambda: self._edit_ssh_role(mount_path, name))
+        
+        menu.addSeparator()
+        
+        delete = menu.addAction("🗑️ Delete Role")
+        delete.triggered.connect(lambda: self._delete_ssh_role(mount_path, name))
+        
+        return menu
     
     def _build_totp_menu(self, menu: QMenu, mount_path: str):
         """Build TOTP secrets engine menu."""
@@ -455,28 +1237,433 @@ class OpenBaoMenuBuilder(QObject):
         secrets_menu.set_new_item_callback(lambda: self._create_generic_secret(mount_path, ""), "➕ New Secret...")
         menu.addMenu(secrets_menu)
     
-    # Engine-specific helpers
+    # ==================== Database Engine Helpers ====================
+    
     def _show_database_config(self, mount_path: str, name: str):
-        response = self.client.api_read(f"{mount_path}/config/{name}")
+        """View database connection configuration."""
+        response = self.client.database_read_connection(mount_path, name)
         if response.ok:
             dialog = JsonEditorDialog(f"DB Connection: {name}", response.data, readonly=True)
             dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed to read connection: {response.error}")
+    
+    def _edit_database_connection(self, mount_path: str, name: str):
+        """Edit database connection configuration."""
+        from app.dialogs import DatabaseConnectionDialog
+        response = self.client.database_read_connection(mount_path, name)
+        if response.ok:
+            data = response.data.get('data', response.data)
+            dialog = DatabaseConnectionDialog(name=name, config=data, is_new=False)
+            dialog.saved.connect(lambda n, d: self._save_database_connection(mount_path, n, d))
+            dialog.exec()
+    
+    def _create_database_connection(self, mount_path: str):
+        """Create a new database connection."""
+        from app.dialogs import DatabaseConnectionDialog
+        dialog = DatabaseConnectionDialog(is_new=True)
+        dialog.saved.connect(lambda name, d: self._save_database_connection(mount_path, name, d))
+        dialog.exec()
+    
+    def _save_database_connection(self, mount_path: str, name: str, data: Dict):
+        """Save database connection."""
+        response = self.client.api_write(f"{mount_path}/config/{name}", data)
+        if response.ok:
+            self.notification.emit("Connection Saved", f"Database connection {name} saved")
+        else:
+            QMessageBox.warning(None, "Error", f"Failed to save connection: {response.error}")
+    
+    def _delete_database_connection(self, mount_path: str, name: str):
+        """Delete database connection."""
+        reply = QMessageBox.question(None, "Delete Connection",
+                                     f"Delete database connection '{name}'?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            response = self.client.database_delete_connection(mount_path, name)
+            if response.ok:
+                self.notification.emit("Connection Deleted", f"Database connection {name} deleted")
+            else:
+                QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _reset_database_connection(self, mount_path: str, name: str):
+        """Reset (close and reopen) database connection."""
+        response = self.client.database_reset_connection(mount_path, name)
+        if response.ok:
+            self.notification.emit("Connection Reset", f"Database connection {name} reset")
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _rotate_database_root(self, mount_path: str, name: str):
+        """Rotate root credentials for database connection."""
+        reply = QMessageBox.question(None, "Rotate Root",
+                                     f"Rotate root credentials for '{name}'?\nThis cannot be undone.",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            response = self.client.database_rotate_root(mount_path, name)
+            if response.ok:
+                self.notification.emit("Root Rotated", f"Root credentials rotated for {name}")
+            else:
+                QMessageBox.warning(None, "Error", f"Failed: {response.error}")
     
     def _show_database_role(self, mount_path: str, name: str):
-        response = self.client.api_read(f"{mount_path}/roles/{name}")
+        """View database role."""
+        response = self.client.database_read_role(mount_path, name)
         if response.ok:
             dialog = JsonEditorDialog(f"DB Role: {name}", response.data, readonly=True)
             dialog.exec()
     
-    def _generate_db_creds(self, mount_path: str):
-        role, ok = QInputDialog.getText(None, "Generate DB Credentials", "Role name:")
-        if ok and role:
-            response = self.client.api_read(f"{mount_path}/creds/{role}")
+    def _edit_database_role(self, mount_path: str, name: str):
+        """Edit database role."""
+        from app.dialogs import DatabaseRoleDialog
+        response = self.client.database_read_role(mount_path, name)
+        if response.ok:
+            data = response.data.get('data', response.data)
+            # Get list of connections for the dropdown
+            conn_response = self.client.database_list_connections(mount_path)
+            connections = conn_response.data.get('data', {}).get('keys', []) if conn_response.ok else []
+            
+            dialog = DatabaseRoleDialog(name=name, config=data, connections=connections, 
+                                        is_static=False, is_new=False)
+            dialog.saved.connect(lambda n, d: self._save_database_role(mount_path, n, d))
+            dialog.exec()
+    
+    def _create_database_role(self, mount_path: str):
+        """Create a new database role."""
+        from app.dialogs import DatabaseRoleDialog
+        # Get list of connections for the dropdown
+        conn_response = self.client.database_list_connections(mount_path)
+        connections = conn_response.data.get('data', {}).get('keys', []) if conn_response.ok else []
+        
+        if not connections:
+            QMessageBox.warning(None, "No Connections", 
+                               "Please create a database connection first before creating roles.")
+            return
+        
+        dialog = DatabaseRoleDialog(connections=connections, is_static=False, is_new=True)
+        dialog.saved.connect(lambda name, d: self._save_database_role(mount_path, name, d))
+        dialog.exec()
+    
+    def _save_database_role(self, mount_path: str, name: str, data: Dict):
+        """Save database role."""
+        response = self.client.api_write(f"{mount_path}/roles/{name}", data)
+        if response.ok:
+            self.notification.emit("Role Saved", f"Database role {name} saved")
+        else:
+            QMessageBox.warning(None, "Error", f"Failed to save role: {response.error}")
+    
+    def _delete_database_role(self, mount_path: str, name: str):
+        """Delete database role."""
+        reply = QMessageBox.question(None, "Delete Role",
+                                     f"Delete database role '{name}'?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            response = self.client.database_delete_role(mount_path, name)
             if response.ok:
-                dialog = JsonEditorDialog(f"DB Credentials", response.data, readonly=True)
-                dialog.exec()
+                self.notification.emit("Role Deleted", f"Database role {name} deleted")
             else:
                 QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _generate_database_creds(self, mount_path: str, role_name: str):
+        """Generate credentials for a database role."""
+        response = self.client.database_generate_creds(mount_path, role_name)
+        if response.ok:
+            # Show the credentials with lease info
+            creds_data = response.data.get('data', response.data)
+            lease_info = {
+                'lease_id': response.data.get('lease_id', ''),
+                'lease_duration': response.data.get('lease_duration', 0),
+                **creds_data
+            }
+            dialog = JsonEditorDialog(f"DB Credentials: {role_name}", lease_info, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed to generate credentials: {response.error}")
+    
+    def _show_database_static_role(self, mount_path: str, name: str):
+        """View static database role."""
+        response = self.client.database_read_static_role(mount_path, name)
+        if response.ok:
+            dialog = JsonEditorDialog(f"Static DB Role: {name}", response.data, readonly=True)
+            dialog.exec()
+    
+    def _edit_database_static_role(self, mount_path: str, name: str):
+        """Edit static database role."""
+        from app.dialogs import DatabaseRoleDialog
+        response = self.client.database_read_static_role(mount_path, name)
+        if response.ok:
+            data = response.data.get('data', response.data)
+            # Get list of connections for the dropdown
+            conn_response = self.client.database_list_connections(mount_path)
+            connections = conn_response.data.get('data', {}).get('keys', []) if conn_response.ok else []
+            
+            dialog = DatabaseRoleDialog(name=name, config=data, connections=connections, 
+                                        is_static=True, is_new=False)
+            dialog.saved.connect(lambda n, d: self._save_database_static_role(mount_path, n, d))
+            dialog.exec()
+    
+    def _create_database_static_role(self, mount_path: str):
+        """Create a new static database role."""
+        from app.dialogs import DatabaseRoleDialog
+        # Get list of connections for the dropdown
+        conn_response = self.client.database_list_connections(mount_path)
+        connections = conn_response.data.get('data', {}).get('keys', []) if conn_response.ok else []
+        
+        if not connections:
+            QMessageBox.warning(None, "No Connections", 
+                               "Please create a database connection first before creating roles.")
+            return
+        
+        dialog = DatabaseRoleDialog(connections=connections, is_static=True, is_new=True)
+        dialog.saved.connect(lambda name, d: self._save_database_static_role(mount_path, name, d))
+        dialog.exec()
+    
+    def _save_database_static_role(self, mount_path: str, name: str, data: Dict):
+        """Save static database role."""
+        response = self.client.api_write(f"{mount_path}/static-roles/{name}", data)
+        if response.ok:
+            self.notification.emit("Static Role Saved", f"Static database role {name} saved")
+        else:
+            QMessageBox.warning(None, "Error", f"Failed to save static role: {response.error}")
+    
+    def _delete_database_static_role(self, mount_path: str, name: str):
+        """Delete static database role."""
+        reply = QMessageBox.question(None, "Delete Static Role",
+                                     f"Delete static database role '{name}'?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            response = self.client.database_delete_static_role(mount_path, name)
+            if response.ok:
+                self.notification.emit("Static Role Deleted", f"Static database role {name} deleted")
+            else:
+                QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _get_database_static_creds(self, mount_path: str, role_name: str):
+        """Get current credentials for a static database role."""
+        response = self.client.database_get_static_creds(mount_path, role_name)
+        if response.ok:
+            dialog = JsonEditorDialog(f"Static DB Credentials: {role_name}", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed to get credentials: {response.error}")
+    
+    def _rotate_database_static_role(self, mount_path: str, role_name: str):
+        """Rotate credentials for a static database role."""
+        response = self.client.database_rotate_static_role(mount_path, role_name)
+        if response.ok:
+            self.notification.emit("Credentials Rotated", f"Static role {role_name} credentials rotated")
+            # Show the new credentials
+            self._get_database_static_creds(mount_path, role_name)
+        else:
+            QMessageBox.warning(None, "Error", f"Failed to rotate: {response.error}")
+    
+    # ==================== SSH Engine Helpers ====================
+    
+    def _show_ssh_ca(self, mount_path: str):
+        """View SSH CA public key."""
+        response = self.client.ssh_read_ca_config(mount_path)
+        if response.ok:
+            dialog = JsonEditorDialog("SSH CA Public Key", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed to read CA: {response.error}")
+    
+    def _configure_ssh_ca(self, mount_path: str):
+        """Configure SSH CA."""
+        template = {
+            'generate_signing_key': True,
+            'key_type': 'ssh-rsa',
+            'key_bits': 4096,
+        }
+        
+        dialog = JsonEditorDialog("Configure SSH CA", template, readonly=False)
+        if dialog.exec():
+            data = dialog.data
+            response = self.client.api_write(f"{mount_path}/config/ca", data)
+            if response.ok:
+                self.notification.emit("CA Configured", "SSH CA has been configured")
+                # Show the public key
+                self._show_ssh_ca(mount_path)
+            else:
+                QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _delete_ssh_ca(self, mount_path: str):
+        """Delete SSH CA configuration."""
+        reply = QMessageBox.question(None, "Delete CA",
+                                     "Delete SSH CA configuration?\nThis will invalidate all signed certificates.",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            response = self.client.ssh_delete_ca(mount_path)
+            if response.ok:
+                self.notification.emit("CA Deleted", "SSH CA has been deleted")
+            else:
+                QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _show_ssh_zeroaddress(self, mount_path: str):
+        """View SSH zero-address configuration."""
+        response = self.client.ssh_read_zeroaddress(mount_path)
+        if response.ok:
+            dialog = JsonEditorDialog("SSH Zero-Address Config", response.data, readonly=False)
+            dialog.saved.connect(lambda d: self._save_ssh_zeroaddress(mount_path, d))
+            dialog.exec()
+        else:
+            # Show template if not configured
+            template = {'roles': []}
+            dialog = JsonEditorDialog("SSH Zero-Address Config", template, readonly=False)
+            dialog.saved.connect(lambda d: self._save_ssh_zeroaddress(mount_path, d))
+            dialog.exec()
+    
+    def _save_ssh_zeroaddress(self, mount_path: str, data: Dict):
+        """Save SSH zero-address configuration."""
+        response = self.client.api_write(f"{mount_path}/config/zeroaddress", data)
+        if response.ok:
+            self.notification.emit("Config Saved", "Zero-address configuration saved")
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _show_ssh_role(self, mount_path: str, name: str):
+        """View SSH role."""
+        response = self.client.ssh_read_role(mount_path, name)
+        if response.ok:
+            dialog = JsonEditorDialog(f"SSH Role: {name}", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _edit_ssh_role(self, mount_path: str, name: str):
+        """Edit SSH role."""
+        from app.dialogs import SSHRoleDialog
+        response = self.client.ssh_read_role(mount_path, name)
+        if response.ok:
+            data = response.data.get('data', response.data)
+            dialog = SSHRoleDialog(name=name, config=data, is_new=False)
+            dialog.saved.connect(lambda n, d: self._save_ssh_role(mount_path, n, d))
+            dialog.exec()
+    
+    def _create_ssh_role(self, mount_path: str):
+        """Create a new SSH role."""
+        from app.dialogs import SSHRoleDialog
+        dialog = SSHRoleDialog(is_new=True)
+        dialog.saved.connect(lambda name, d: self._save_ssh_role(mount_path, name, d))
+        dialog.exec()
+    
+    def _save_ssh_role(self, mount_path: str, name: str, data: Dict):
+        """Save SSH role."""
+        response = self.client.api_write(f"{mount_path}/roles/{name}", data)
+        if response.ok:
+            self.notification.emit("Role Saved", f"SSH role {name} saved")
+        else:
+            QMessageBox.warning(None, "Error", f"Failed to save role: {response.error}")
+    
+    def _delete_ssh_role(self, mount_path: str, name: str):
+        """Delete SSH role."""
+        reply = QMessageBox.question(None, "Delete Role",
+                                     f"Delete SSH role '{name}'?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            response = self.client.ssh_delete_role(mount_path, name)
+            if response.ok:
+                self.notification.emit("Role Deleted", f"SSH role {name} deleted")
+            else:
+                QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _sign_ssh_key_for_role(self, mount_path: str, role_name: str):
+        """Sign an SSH public key using a specific role."""
+        # Allow file selection or paste
+        file_path, _ = QFileDialog.getOpenFileName(None, "Select Public Key", "", 
+                                                   "Public Keys (*.pub);;All Files (*)")
+        if file_path:
+            try:
+                with open(file_path, 'r') as f:
+                    public_key = f.read().strip()
+            except Exception as e:
+                QMessageBox.warning(None, "Error", f"Failed to read file: {e}")
+                return
+        else:
+            public_key, ok = QInputDialog.getMultiLineText(None, "Sign SSH Key", "Paste public key:")
+            if not ok or not public_key:
+                return
+        
+        # Optional: get valid principals
+        principals, ok = QInputDialog.getText(None, "Valid Principals (optional)", 
+                                              "Comma-separated list of valid principals:")
+        
+        data = {'public_key': public_key}
+        if ok and principals:
+            data['valid_principals'] = principals
+        
+        response = self.client.api_write(f"{mount_path}/sign/{role_name}", data)
+        if response.ok:
+            signed_data = response.data.get('data', response.data)
+            dialog = JsonEditorDialog(f"Signed SSH Certificate", signed_data, readonly=True)
+            dialog.exec()
+            
+            # Offer to save the signed certificate
+            if 'signed_key' in signed_data:
+                reply = QMessageBox.question(None, "Save Certificate",
+                                            "Save the signed certificate to a file?",
+                                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                if reply == QMessageBox.StandardButton.Yes:
+                    save_path, _ = QFileDialog.getSaveFileName(None, "Save Certificate", 
+                                                               "id_rsa-cert.pub", 
+                                                               "Certificate (*.pub);;All Files (*)")
+                    if save_path:
+                        with open(save_path, 'w') as f:
+                            f.write(signed_data['signed_key'])
+                        self.notification.emit("Certificate Saved", f"Saved to {save_path}")
+        else:
+            QMessageBox.warning(None, "Error", f"Failed to sign key: {response.error}")
+    
+    def _issue_ssh_creds_for_role(self, mount_path: str, role_name: str):
+        """Issue SSH credentials (key pair + certificate) for a role."""
+        response = self.client.ssh_issue_credential(mount_path, role_name)
+        if response.ok:
+            creds_data = response.data.get('data', response.data)
+            dialog = JsonEditorDialog(f"SSH Credentials: {role_name}", creds_data, readonly=True)
+            dialog.exec()
+            
+            # Offer to save the credentials
+            if 'private_key' in creds_data:
+                reply = QMessageBox.question(None, "Save Credentials",
+                                            "Save the SSH credentials to files?",
+                                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                if reply == QMessageBox.StandardButton.Yes:
+                    base_path, _ = QFileDialog.getSaveFileName(None, "Save Private Key", 
+                                                               "id_rsa_vault", 
+                                                               "Key Files (*);;All Files (*)")
+                    if base_path:
+                        # Save private key
+                        with open(base_path, 'w') as f:
+                            f.write(creds_data['private_key'])
+                        os.chmod(base_path, 0o600)
+                        
+                        # Save public key if present
+                        if 'public_key' in creds_data:
+                            with open(f"{base_path}.pub", 'w') as f:
+                                f.write(creds_data['public_key'])
+                        
+                        # Save certificate if present
+                        if 'signed_key' in creds_data:
+                            with open(f"{base_path}-cert.pub", 'w') as f:
+                                f.write(creds_data['signed_key'])
+                        
+                        self.notification.emit("Credentials Saved", f"Saved to {base_path}")
+        else:
+            QMessageBox.warning(None, "Error", f"Failed to issue credentials: {response.error}")
+    
+    # Legacy methods for backwards compatibility
+    def _sign_ssh_key(self, mount_path: str):
+        """Sign SSH key - legacy method that asks for role."""
+        role, ok = QInputDialog.getText(None, "Sign SSH Key", "Role name:")
+        if ok and role:
+            self._sign_ssh_key_for_role(mount_path, role)
+    
+    def _issue_ssh_creds(self, mount_path: str):
+        """Issue SSH credentials - legacy method that asks for role."""
+        role, ok = QInputDialog.getText(None, "Issue SSH Credentials", "Role name:")
+        if ok and role:
+            self._issue_ssh_creds_for_role(mount_path, role)
+    
+    # ==================== Other Engine Helpers ====================
     
     def _show_aws_role(self, mount_path: str, name: str):
         response = self.client.api_read(f"{mount_path}/roles/{name}")
@@ -499,45 +1686,6 @@ class OpenBaoMenuBuilder(QObject):
             if response.ok:
                 dialog = JsonEditorDialog("AWS STS Credentials", response.data, readonly=True)
                 dialog.exec()
-    
-    def _show_ssh_role(self, mount_path: str, name: str):
-        response = self.client.api_read(f"{mount_path}/roles/{name}")
-        if response.ok:
-            dialog = JsonEditorDialog(f"SSH Role: {name}", response.data, readonly=True)
-            dialog.exec()
-    
-    def _sign_ssh_key(self, mount_path: str):
-        role, ok = QInputDialog.getText(None, "Sign SSH Key", "Role name:")
-        if ok and role:
-            # Allow file selection or paste
-            file_path, _ = QFileDialog.getOpenFileName(None, "Select Public Key", "", "Public Keys (*.pub);;All Files (*)")
-            if file_path:
-                try:
-                    with open(file_path, 'r') as f:
-                        public_key = f.read().strip()
-                except Exception as e:
-                    QMessageBox.warning(None, "Error", f"Failed to read file: {e}")
-                    return
-            else:
-                public_key, ok = QInputDialog.getMultiLineText(None, "Sign SSH Key", "Paste public key:")
-                if not ok or not public_key:
-                    return
-            
-            response = self.client.api_write(f"{mount_path}/sign/{role}", {'public_key': public_key})
-            if response.ok:
-                dialog = JsonEditorDialog("Signed SSH Key", response.data, readonly=True)
-                dialog.exec()
-    
-    def _issue_ssh_creds(self, mount_path: str):
-        role, ok = QInputDialog.getText(None, "Issue SSH Credentials", "Role name:")
-        if ok and role:
-            dialog = CrudDialog("SSH Credentials", {'ip': '', 'username': ''})
-            if dialog.exec():
-                data = dialog.data
-                response = self.client.api_write(f"{mount_path}/creds/{role}", data)
-                if response.ok:
-                    dialog = JsonEditorDialog("SSH Credentials", response.data, readonly=True)
-                    dialog.exec()
     
     def _show_totp_key(self, mount_path: str, name: str):
         response = self.client.api_read(f"{mount_path}/keys/{name}")
@@ -2643,28 +3791,953 @@ class OpenBaoMenuBuilder(QObject):
     def _create_system_menu(self) -> QMenu:
         menu = QMenu("⚙️ System")
         
-        health = menu.addAction("❤️ Health Status")
+        # Status section
+        status_menu = QMenu("📊 Status")
+        
+        health = status_menu.addAction("❤️ Health")
         health.triggered.connect(self._show_health)
         
-        seal = menu.addAction("🔒 Seal Status")
+        seal = status_menu.addAction("🔒 Seal Status")
         seal.triggered.connect(self._show_seal_status)
         
-        leader = menu.addAction("👑 Leader Status")
+        leader = status_menu.addAction("👑 Leader")
         leader.triggered.connect(self._show_leader)
+        
+        ha_status = status_menu.addAction("🔄 HA Status")
+        ha_status.triggered.connect(self._show_ha_status)
+        
+        key_status = status_menu.addAction("🔑 Key Status")
+        key_status.triggered.connect(self._show_key_status)
+        
+        init_status = status_menu.addAction("🎬 Init Status")
+        init_status.triggered.connect(self._show_init_status)
+        
+        menu.addMenu(status_menu)
+        
+        # Mounts management (tune existing engines)
+        mounts_menu = QMenu("📦 Mounts")
+        
+        list_secret_mounts = mounts_menu.addAction("🗝️ List Secret Engines")
+        list_secret_mounts.triggered.connect(self._list_secret_mounts)
+        
+        list_auth_mounts = mounts_menu.addAction("🔐 List Auth Methods")
+        list_auth_mounts.triggered.connect(self._list_auth_mounts)
+        
+        mounts_menu.addSeparator()
+        
+        tune_mount = mounts_menu.addAction("⚙️ Tune Mount")
+        tune_mount.triggered.connect(self._tune_mount)
+        
+        disable_mount = mounts_menu.addAction("🗑️ Disable Mount")
+        disable_mount.triggered.connect(self._disable_mount)
+        
+        menu.addMenu(mounts_menu)
+        
+        # Operations section
+        ops_menu = QMenu("🔧 Operations")
+        
+        seal_vault = ops_menu.addAction("🔒 Seal Vault")
+        seal_vault.triggered.connect(self._seal_vault)
+        
+        unseal_vault = ops_menu.addAction("🔓 Unseal Vault")
+        unseal_vault.triggered.connect(self._unseal_vault)
+        
+        step_down = ops_menu.addAction("👇 Step Down")
+        step_down.triggered.connect(self._step_down)
+        
+        rotate_key = ops_menu.addAction("🔄 Rotate Encryption Key")
+        rotate_key.triggered.connect(self._rotate_encryption_key)
+        
+        menu.addMenu(ops_menu)
+        
+        # Audit section
+        audit_menu = AsyncMenu("📝 Audit Devices", self._load_audit_devices)
+        audit_menu.set_submenu_factory(self._create_audit_device_submenu)
+        audit_menu.set_new_item_callback(self._create_audit_device, "➕ Enable Audit Device...")
+        menu.addMenu(audit_menu)
+        
+        # Leases section
+        leases_menu = QMenu("📋 Leases")
+        lookup_lease = leases_menu.addAction("🔍 Lookup Lease")
+        lookup_lease.triggered.connect(self._lookup_lease)
+        renew_lease = leases_menu.addAction("🔄 Renew Lease")
+        renew_lease.triggered.connect(self._renew_lease_dialog)
+        revoke_lease = leases_menu.addAction("🗑️ Revoke Lease")
+        revoke_lease.triggered.connect(self._revoke_lease)
+        list_leases = leases_menu.addAction("📋 List Leases")
+        list_leases.triggered.connect(self._list_leases)
+        revoke_prefix = leases_menu.addAction("⚠️ Revoke Prefix")
+        revoke_prefix.triggered.connect(self._revoke_lease_prefix)
+        menu.addMenu(leases_menu)
+        
+        # Plugins section
+        plugins_menu = QMenu("🔌 Plugins")
+        list_plugins = plugins_menu.addAction("📋 List Catalog")
+        list_plugins.triggered.connect(self._show_plugins_catalog)
+        reload_plugin = plugins_menu.addAction("🔄 Reload Plugin")
+        reload_plugin.triggered.connect(self._reload_plugin)
+        reload_mounts = plugins_menu.addAction("🔄 Reload All Mounts")
+        reload_mounts.triggered.connect(self._reload_mounts)
+        menu.addMenu(plugins_menu)
+        
+        # Quotas section
+        quotas_menu = QMenu("📊 Quotas")
+        rate_limits = quotas_menu.addAction("⏱️ Rate Limit Quotas")
+        rate_limits.triggered.connect(self._show_rate_limit_quotas)
+        lease_counts = quotas_menu.addAction("📈 Lease Count Quotas")
+        lease_counts.triggered.connect(self._show_lease_count_quotas)
+        quotas_menu.addSeparator()
+        create_rate_limit = quotas_menu.addAction("➕ Create Rate Limit")
+        create_rate_limit.triggered.connect(self._create_rate_limit_quota)
+        menu.addMenu(quotas_menu)
+        
+        # Storage section (Raft)
+        storage_menu = QMenu("💾 Storage (Raft)")
+        raft_config = storage_menu.addAction("⚙️ Configuration")
+        raft_config.triggered.connect(self._show_raft_config)
+        autopilot_state = storage_menu.addAction("🤖 Autopilot State")
+        autopilot_state.triggered.connect(self._show_autopilot_state)
+        autopilot_config = storage_menu.addAction("⚙️ Autopilot Config")
+        autopilot_config.triggered.connect(self._show_autopilot_config)
+        storage_menu.addSeparator()
+        snapshot = storage_menu.addAction("📥 Download Snapshot")
+        snapshot.triggered.connect(self._download_raft_snapshot)
+        remove_peer = storage_menu.addAction("🗑️ Remove Peer")
+        remove_peer.triggered.connect(self._remove_raft_peer)
+        menu.addMenu(storage_menu)
+        
+        # Replication section
+        replication_menu = QMenu("🔄 Replication")
+        repl_status = replication_menu.addAction("📊 Status")
+        repl_status.triggered.connect(self._show_replication_status)
+        menu.addMenu(replication_menu)
         
         menu.addSeparator()
         
-        audit_menu = AsyncMenu("📝 Audit Devices", self._load_audit_devices)
-        menu.addMenu(audit_menu)
+        # Counters/Metrics section
+        counters_menu = QMenu("📈 Counters & Metrics")
+        activity = counters_menu.addAction("📊 Client Activity")
+        activity.triggered.connect(self._show_client_activity)
+        token_count = counters_menu.addAction("🎫 Token Count")
+        token_count.triggered.connect(self._show_token_count)
+        entity_count = counters_menu.addAction("👤 Entity Count")
+        entity_count.triggered.connect(self._show_entity_count)
+        in_flight = counters_menu.addAction("✈️ In-Flight Requests")
+        in_flight.triggered.connect(self._show_in_flight_requests)
+        counters_menu.addSeparator()
+        prometheus = counters_menu.addAction("📊 Prometheus Metrics")
+        prometheus.triggered.connect(self._show_prometheus_metrics)
+        menu.addMenu(counters_menu)
         
-        leases_menu = QMenu("📋 Leases")
-        list_leases = leases_menu.addAction("🔍 Lookup Lease")
-        list_leases.triggered.connect(self._lookup_lease)
-        revoke_lease = leases_menu.addAction("🗑️ Revoke Lease")
-        revoke_lease.triggered.connect(self._revoke_lease)
-        menu.addMenu(leases_menu)
+        # Config section
+        config_menu = QMenu("⚙️ Configuration")
+        cors = config_menu.addAction("🌐 CORS")
+        cors.triggered.connect(self._show_cors_config)
+        ui_headers = config_menu.addAction("📋 UI Headers")
+        ui_headers.triggered.connect(self._show_ui_headers)
+        state = config_menu.addAction("📝 Sanitized State")
+        state.triggered.connect(self._show_config_state)
+        config_menu.addSeparator()
+        request_headers = config_menu.addAction("📋 Audited Request Headers")
+        request_headers.triggered.connect(self._show_audited_request_headers)
+        license_info = config_menu.addAction("📜 License Info")
+        license_info.triggered.connect(self._show_license_info)
+        menu.addMenu(config_menu)
+        
+        # Internal UI endpoints
+        internal_menu = QMenu("🔍 Internal")
+        ui_mounts = internal_menu.addAction("📦 UI Mounts")
+        ui_mounts.triggered.connect(self._show_ui_mounts)
+        ui_namespaces = internal_menu.addAction("📂 UI Namespaces")
+        ui_namespaces.triggered.connect(self._show_ui_namespaces)
+        openapi = internal_menu.addAction("📖 OpenAPI Spec")
+        openapi.triggered.connect(self._show_openapi_spec)
+        menu.addMenu(internal_menu)
+        
+        # Advanced section
+        advanced_menu = QMenu("🔧 Advanced")
+        host_info = advanced_menu.addAction("🖥️ Host Info")
+        host_info.triggered.connect(self._show_host_info)
+        capabilities = advanced_menu.addAction("🔐 Check Capabilities")
+        capabilities.triggered.connect(self._check_capabilities)
+        capabilities_self = advanced_menu.addAction("🔐 Check My Capabilities")
+        capabilities_self.triggered.connect(self._check_capabilities_self)
+        remount = advanced_menu.addAction("📦 Remount Engine")
+        remount.triggered.connect(self._remount_engine)
+        raw_storage = advanced_menu.addAction("💾 Raw Storage (Root)")
+        raw_storage.triggered.connect(self._browse_raw_storage)
+        advanced_menu.addSeparator()
+        pprof = advanced_menu.addAction("📊 pprof Index")
+        pprof.triggered.connect(self._show_pprof)
+        monitor = advanced_menu.addAction("📋 Monitor Logs")
+        monitor.triggered.connect(self._show_monitor_logs)
+        menu.addMenu(advanced_menu)
+        
+        # Root token generation (dangerous operations)
+        root_menu = QMenu("⚠️ Root Token")
+        gen_status = root_menu.addAction("📊 Generation Status")
+        gen_status.triggered.connect(self._show_root_gen_status)
+        gen_init = root_menu.addAction("▶️ Start Generation")
+        gen_init.triggered.connect(self._init_root_generation)
+        gen_cancel = root_menu.addAction("❌ Cancel Generation")
+        gen_cancel.triggered.connect(self._cancel_root_generation)
+        menu.addMenu(root_menu)
+        
+        # Rekey section
+        rekey_menu = QMenu("🔑 Rekey")
+        rekey_status = rekey_menu.addAction("📊 Status")
+        rekey_status.triggered.connect(self._show_rekey_status)
+        rekey_init = rekey_menu.addAction("▶️ Start Rekey")
+        rekey_init.triggered.connect(self._init_rekey)
+        rekey_cancel = rekey_menu.addAction("❌ Cancel Rekey")
+        rekey_cancel.triggered.connect(self._cancel_rekey)
+        menu.addMenu(rekey_menu)
         
         return menu
+    
+    # ==================== System Menu Helpers ====================
+    
+    def _show_ha_status(self):
+        """Show HA status."""
+        response = self.client.sys_ha_status()
+        if response.ok:
+            dialog = JsonEditorDialog("HA Status", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _show_key_status(self):
+        """Show encryption key status."""
+        response = self.client.sys_key_status()
+        if response.ok:
+            dialog = JsonEditorDialog("Key Status", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _show_init_status(self):
+        """Show initialization status."""
+        response = self.client.sys_init_status()
+        if response.ok:
+            dialog = JsonEditorDialog("Init Status", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _seal_vault(self):
+        """Seal the vault."""
+        reply = QMessageBox.question(None, "⚠️ Seal Vault",
+                                     "Are you sure you want to SEAL the vault?\nThis will require unsealing to access secrets.",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            response = self.client.sys_seal()
+            if response.ok:
+                self.notification.emit("Vault Sealed", "The vault has been sealed")
+            else:
+                QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _unseal_vault(self):
+        """Unseal the vault."""
+        key, ok = QInputDialog.getText(None, "Unseal Vault", "Enter unseal key:")
+        if ok and key:
+            response = self.client.sys_unseal(key=key)
+            if response.ok:
+                data = response.data.get('data', response.data)
+                sealed = data.get('sealed', True)
+                progress = data.get('progress', 0)
+                threshold = data.get('t', 0)
+                if sealed:
+                    QMessageBox.information(None, "Unseal Progress", 
+                                           f"Progress: {progress}/{threshold}")
+                else:
+                    self.notification.emit("Vault Unsealed", "The vault has been unsealed")
+            else:
+                QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _step_down(self):
+        """Force active node to step down."""
+        reply = QMessageBox.question(None, "Step Down",
+                                     "Force the active node to step down?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            response = self.client.sys_step_down()
+            if response.ok:
+                self.notification.emit("Step Down", "Active node has stepped down")
+            else:
+                QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _rotate_encryption_key(self):
+        """Rotate the encryption key."""
+        reply = QMessageBox.question(None, "Rotate Key",
+                                     "Rotate the encryption key?\nThis is a safe operation.",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            response = self.client.sys_rotate()
+            if response.ok:
+                self.notification.emit("Key Rotated", "Encryption key has been rotated")
+            else:
+                QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _create_audit_device_submenu(self, title: str, data: str) -> QMenu:
+        """Create submenu for an audit device."""
+        menu = QMenu(data)
+        
+        view = menu.addAction("👁️ View")
+        view.triggered.connect(lambda: self._show_audit_device(data))
+        
+        disable = menu.addAction("🗑️ Disable")
+        disable.triggered.connect(lambda: self._disable_audit_device(data))
+        
+        return menu
+    
+    def _show_audit_device(self, path: str):
+        """Show audit device configuration."""
+        response = self.client.list_audit_devices()
+        if response.ok:
+            devices = response.data.get('data', response.data)
+            device_key = path.rstrip('/') + '/'
+            if device_key in devices:
+                dialog = JsonEditorDialog(f"Audit Device: {path}", devices[device_key], readonly=True)
+                dialog.exec()
+    
+    def _create_audit_device(self):
+        """Enable a new audit device."""
+        path, ok = QInputDialog.getText(None, "Enable Audit Device", "Path (e.g., 'file/'):")
+        if not ok or not path:
+            return
+        
+        device_types = ['file', 'syslog', 'socket']
+        device_type, ok = QInputDialog.getItem(None, "Audit Device Type", "Select type:",
+                                               device_types, 0, False)
+        if not ok:
+            return
+        
+        if device_type == 'file':
+            template = {
+                'type': 'file',
+                'options': {
+                    'file_path': '/var/log/vault/audit.log',
+                    'log_raw': False,
+                }
+            }
+        elif device_type == 'syslog':
+            template = {
+                'type': 'syslog',
+                'options': {
+                    'facility': 'AUTH',
+                    'tag': 'vault',
+                }
+            }
+        else:
+            template = {
+                'type': 'socket',
+                'options': {
+                    'address': 'localhost:9090',
+                    'socket_type': 'tcp',
+                }
+            }
+        
+        dialog = JsonEditorDialog(f"Enable Audit: {path}", template, readonly=False)
+        if dialog.exec():
+            data = dialog.data
+            response = self.client.enable_audit_device(path, data.get('type', device_type),
+                                                       options=data.get('options', {}))
+            if response.ok:
+                self.notification.emit("Audit Enabled", f"Audit device {path} enabled")
+            else:
+                QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _disable_audit_device(self, path: str):
+        """Disable an audit device."""
+        reply = QMessageBox.question(None, "Disable Audit",
+                                     f"Disable audit device '{path}'?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            response = self.client.disable_audit_device(path)
+            if response.ok:
+                self.notification.emit("Audit Disabled", f"Audit device {path} disabled")
+            else:
+                QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _renew_lease_dialog(self):
+        """Renew a lease."""
+        lease_id, ok = QInputDialog.getText(None, "Renew Lease", "Lease ID:")
+        if ok and lease_id:
+            increment, ok = QInputDialog.getInt(None, "Renew Lease", "Increment (seconds):", 3600, 0, 86400*30)
+            if ok:
+                response = self.client.renew_lease(lease_id, increment)
+                if response.ok:
+                    self.notification.emit("Lease Renewed", f"Lease renewed: {lease_id}")
+                else:
+                    QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _list_leases(self):
+        """List leases by prefix."""
+        prefix, ok = QInputDialog.getText(None, "List Leases", "Prefix (e.g., 'database/creds/'):")
+        if ok and prefix:
+            response = self.client.list_leases(prefix)
+            if response.ok:
+                dialog = JsonEditorDialog(f"Leases: {prefix}", response.data, readonly=True)
+                dialog.exec()
+            else:
+                QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _show_plugins_catalog(self):
+        """Show plugins catalog."""
+        response = self.client.sys_plugins_catalog_list()
+        if response.ok:
+            dialog = JsonEditorDialog("Plugins Catalog", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _reload_plugin(self):
+        """Reload a plugin."""
+        plugin, ok = QInputDialog.getText(None, "Reload Plugin", "Plugin name:")
+        if ok and plugin:
+            response = self.client.sys_plugins_reload(plugin=plugin)
+            if response.ok:
+                self.notification.emit("Plugin Reloaded", f"Plugin {plugin} reloaded")
+            else:
+                QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _show_rate_limit_quotas(self):
+        """Show rate limit quotas."""
+        response = self.client.sys_quotas_rate_limit_list()
+        if response.ok:
+            dialog = JsonEditorDialog("Rate Limit Quotas", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _show_lease_count_quotas(self):
+        """Show lease count quotas."""
+        response = self.client.sys_quotas_lease_count_list()
+        if response.ok:
+            dialog = JsonEditorDialog("Lease Count Quotas", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _show_raft_config(self):
+        """Show Raft storage configuration."""
+        response = self.client.sys_storage_raft_config()
+        if response.ok:
+            dialog = JsonEditorDialog("Raft Configuration", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _show_autopilot_state(self):
+        """Show Raft autopilot state."""
+        response = self.client.sys_storage_raft_autopilot_state()
+        if response.ok:
+            dialog = JsonEditorDialog("Autopilot State", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _show_autopilot_config(self):
+        """Show Raft autopilot configuration."""
+        response = self.client.sys_storage_raft_autopilot_config()
+        if response.ok:
+            dialog = JsonEditorDialog("Autopilot Config", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _remove_raft_peer(self):
+        """Remove a peer from Raft cluster."""
+        server_id, ok = QInputDialog.getText(None, "Remove Raft Peer", "Server ID:")
+        if ok and server_id:
+            reply = QMessageBox.question(None, "Remove Peer",
+                                         f"Remove server '{server_id}' from Raft cluster?",
+                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if reply == QMessageBox.StandardButton.Yes:
+                response = self.client.sys_storage_raft_remove_peer(server_id)
+                if response.ok:
+                    self.notification.emit("Peer Removed", f"Server {server_id} removed from cluster")
+                else:
+                    QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _show_replication_status(self):
+        """Show replication status."""
+        response = self.client.sys_replication_status()
+        if response.ok:
+            dialog = JsonEditorDialog("Replication Status", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _show_client_activity(self):
+        """Show client activity data."""
+        response = self.client.sys_internal_counters_activity()
+        if response.ok:
+            dialog = JsonEditorDialog("Client Activity", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _show_token_count(self):
+        """Show token count."""
+        response = self.client.sys_internal_counters_tokens()
+        if response.ok:
+            dialog = JsonEditorDialog("Token Count", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _show_entity_count(self):
+        """Show entity count."""
+        response = self.client.sys_internal_counters_entities()
+        if response.ok:
+            dialog = JsonEditorDialog("Entity Count", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _show_in_flight_requests(self):
+        """Show in-flight requests."""
+        response = self.client.sys_in_flight_req()
+        if response.ok:
+            dialog = JsonEditorDialog("In-Flight Requests", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _show_cors_config(self):
+        """Show CORS configuration."""
+        response = self.client.sys_config_cors()
+        if response.ok:
+            dialog = JsonEditorDialog("CORS Configuration", response.data, readonly=False)
+            dialog.saved.connect(self._save_cors_config)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _save_cors_config(self, data: Dict):
+        """Save CORS configuration."""
+        response = self.client.sys_config_cors_configure(
+            enabled=data.get('enabled', False),
+            allowed_origins=data.get('allowed_origins'),
+            allowed_headers=data.get('allowed_headers')
+        )
+        if response.ok:
+            self.notification.emit("CORS Saved", "CORS configuration saved")
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _show_ui_headers(self):
+        """Show custom UI headers."""
+        response = self.client.sys_config_ui_headers()
+        if response.ok:
+            dialog = JsonEditorDialog("UI Headers", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _show_config_state(self):
+        """Show sanitized configuration state."""
+        response = self.client.sys_config_state_sanitized()
+        if response.ok:
+            dialog = JsonEditorDialog("Sanitized Config State", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _show_host_info(self):
+        """Show host information."""
+        response = self.client.sys_host_info()
+        if response.ok:
+            dialog = JsonEditorDialog("Host Information", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _check_capabilities(self):
+        """Check capabilities on paths."""
+        paths_str, ok = QInputDialog.getText(None, "Check Capabilities", 
+                                             "Paths (comma-separated):")
+        if ok and paths_str:
+            paths = [p.strip() for p in paths_str.split(',')]
+            response = self.client.sys_capabilities_self(paths)
+            if response.ok:
+                dialog = JsonEditorDialog("Capabilities", response.data, readonly=True)
+                dialog.exec()
+            else:
+                QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _remount_engine(self):
+        """Remount a secrets engine."""
+        from_path, ok = QInputDialog.getText(None, "Remount Engine", "Current path:")
+        if not ok or not from_path:
+            return
+        to_path, ok = QInputDialog.getText(None, "Remount Engine", "New path:")
+        if not ok or not to_path:
+            return
+        
+        reply = QMessageBox.question(None, "Remount",
+                                     f"Remount '{from_path}' to '{to_path}'?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            response = self.client.sys_remount(from_path, to_path)
+            if response.ok:
+                self.notification.emit("Remount Started", f"Remounting {from_path} to {to_path}")
+            else:
+                QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _browse_raw_storage(self):
+        """Browse raw storage (requires root token)."""
+        path, ok = QInputDialog.getText(None, "Raw Storage", "Path (leave empty for root):")
+        if ok:
+            if path:
+                response = self.client.sys_raw_read(path)
+            else:
+                response = self.client.sys_raw_list(path)
+            
+            if response.ok:
+                dialog = JsonEditorDialog(f"Raw Storage: {path or '/'}", response.data, readonly=True)
+                dialog.exec()
+            else:
+                QMessageBox.warning(None, "Error", f"Failed (requires root token): {response.error}")
+    
+    def _show_root_gen_status(self):
+        """Show root token generation status."""
+        response = self.client.sys_generate_root_status()
+        if response.ok:
+            dialog = JsonEditorDialog("Root Generation Status", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _init_root_generation(self):
+        """Initialize root token generation."""
+        otp, ok = QInputDialog.getText(None, "Generate Root Token", 
+                                       "OTP (leave empty to generate):")
+        if ok:
+            response = self.client.sys_generate_root_init(otp=otp if otp else None)
+            if response.ok:
+                dialog = JsonEditorDialog("Root Generation Initialized", response.data, readonly=True)
+                dialog.exec()
+            else:
+                QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _cancel_root_generation(self):
+        """Cancel root token generation."""
+        response = self.client.sys_generate_root_cancel()
+        if response.ok:
+            self.notification.emit("Cancelled", "Root generation cancelled")
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _show_rekey_status(self):
+        """Show rekey status."""
+        response = self.client.sys_rekey_init_status()
+        if response.ok:
+            dialog = JsonEditorDialog("Rekey Status", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _init_rekey(self):
+        """Initialize rekey operation."""
+        shares, ok = QInputDialog.getInt(None, "Rekey", "Number of key shares:", 5, 1, 10)
+        if not ok:
+            return
+        threshold, ok = QInputDialog.getInt(None, "Rekey", "Key threshold:", 3, 1, shares)
+        if not ok:
+            return
+        
+        response = self.client.sys_rekey_init(shares, threshold)
+        if response.ok:
+            dialog = JsonEditorDialog("Rekey Initialized", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _cancel_rekey(self):
+        """Cancel rekey operation."""
+        response = self.client.sys_rekey_cancel()
+        if response.ok:
+            self.notification.emit("Cancelled", "Rekey operation cancelled")
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    # ==================== New System Menu Handlers ====================
+    
+    def _list_secret_mounts(self):
+        """List all secret engine mounts."""
+        response = self.client.list_mounts()
+        if response.ok:
+            dialog = JsonEditorDialog("Secret Engine Mounts", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _list_auth_mounts(self):
+        """List all auth method mounts."""
+        response = self.client.list_auth_methods()
+        if response.ok:
+            dialog = JsonEditorDialog("Auth Method Mounts", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _tune_mount(self):
+        """Tune a mount's configuration."""
+        path, ok = QInputDialog.getText(None, "Tune Mount", "Mount path (e.g., secret/, auth/userpass/):")
+        if not ok or not path:
+            return
+        
+        # Get current tune settings
+        if path.startswith('auth/'):
+            response = self.client.read_auth_method(path.replace('auth/', ''))
+        else:
+            response = self.client.mount_info(path)
+        
+        current_config = {}
+        if response.ok:
+            data = response.data.get('data', response.data)
+            current_config = data.get('config', {})
+        
+        tune_template = {
+            'default_lease_ttl': current_config.get('default_lease_ttl', ''),
+            'max_lease_ttl': current_config.get('max_lease_ttl', ''),
+            'description': current_config.get('description', ''),
+            'audit_non_hmac_request_keys': current_config.get('audit_non_hmac_request_keys', []),
+            'audit_non_hmac_response_keys': current_config.get('audit_non_hmac_response_keys', []),
+            'listing_visibility': current_config.get('listing_visibility', 'hidden'),
+            'passthrough_request_headers': current_config.get('passthrough_request_headers', []),
+        }
+        
+        dialog = JsonEditorDialog(f"Tune Mount: {path}", tune_template, readonly=False)
+        dialog.saved.connect(lambda d: self._save_tune_mount(path, d))
+        dialog.exec()
+    
+    def _save_tune_mount(self, path: str, data: Dict):
+        """Save mount tune configuration."""
+        # Remove empty values
+        tune_data = {k: v for k, v in data.items() if v}
+        
+        if path.startswith('auth/'):
+            response = self.client.tune_auth_method(path.replace('auth/', '').rstrip('/'), **tune_data)
+        else:
+            response = self.client.api_write(f"sys/mounts/{path.rstrip('/')}/tune", tune_data)
+        
+        if response.ok:
+            self.notification.emit("Mount Tuned", f"Mount {path} tuned successfully")
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _disable_mount(self):
+        """Disable a secrets engine or auth method."""
+        path, ok = QInputDialog.getText(None, "Disable Mount", "Mount path (e.g., secret/, auth/userpass/):")
+        if not ok or not path:
+            return
+        
+        reply = QMessageBox.question(None, "⚠️ Disable Mount",
+                                     f"Are you sure you want to disable '{path}'?\nThis will delete all secrets in this mount!",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            if path.startswith('auth/'):
+                response = self.client.disable_auth_method(path.replace('auth/', '').rstrip('/'))
+            else:
+                response = self.client.disable_secrets_engine(path.rstrip('/'))
+            
+            if response.ok:
+                self.notification.emit("Mount Disabled", f"Mount {path} disabled")
+            else:
+                QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _revoke_lease_prefix(self):
+        """Revoke all leases under a prefix."""
+        prefix, ok = QInputDialog.getText(None, "Revoke Lease Prefix", 
+                                          "Lease prefix (e.g., aws/creds/my-role):")
+        if not ok or not prefix:
+            return
+        
+        reply = QMessageBox.question(None, "⚠️ Revoke Prefix",
+                                     f"Revoke ALL leases under '{prefix}'?\nThis cannot be undone!",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            response = self.client.api_write(f"sys/leases/revoke-prefix/{prefix}", {})
+            if response.ok:
+                self.notification.emit("Leases Revoked", f"All leases under {prefix} revoked")
+            else:
+                QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _reload_mounts(self):
+        """Reload all plugin mounts."""
+        reply = QMessageBox.question(None, "Reload Mounts",
+                                     "Reload all plugin mounts?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            response = self.client.sys_plugins_reload()
+            if response.ok:
+                self.notification.emit("Reloaded", "All plugin mounts reloaded")
+            else:
+                QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _create_rate_limit_quota(self):
+        """Create a rate limit quota."""
+        name, ok = QInputDialog.getText(None, "Create Rate Limit Quota", "Quota name:")
+        if not ok or not name:
+            return
+        
+        template = {
+            'rate': 100.0,
+            'interval': '1s',
+            'path': '',
+            'block_interval': '',
+        }
+        
+        dialog = JsonEditorDialog(f"New Rate Limit: {name}", template, readonly=False)
+        dialog.saved.connect(lambda d: self._save_rate_limit_quota(name, d))
+        dialog.exec()
+    
+    def _save_rate_limit_quota(self, name: str, data: Dict):
+        """Save rate limit quota."""
+        response = self.client.sys_quotas_rate_limit_create(
+            name, 
+            rate=data.get('rate', 100),
+            interval=data.get('interval', '1s'),
+            path=data.get('path'),
+            block_interval=data.get('block_interval')
+        )
+        if response.ok:
+            self.notification.emit("Quota Created", f"Rate limit quota {name} created")
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _download_raft_snapshot(self):
+        """Download a Raft snapshot."""
+        file_path, _ = QFileDialog.getSaveFileName(None, "Save Snapshot", "vault-snapshot.snap",
+                                                    "Snapshot Files (*.snap);;All Files (*)")
+        if file_path:
+            response = self.client.sys_storage_raft_snapshot()
+            if response.ok:
+                try:
+                    # The snapshot is binary data
+                    with open(file_path, 'wb') as f:
+                        if isinstance(response.data, bytes):
+                            f.write(response.data)
+                        else:
+                            f.write(str(response.data).encode())
+                    self.notification.emit("Snapshot Saved", f"Snapshot saved to {file_path}")
+                except Exception as e:
+                    QMessageBox.warning(None, "Error", f"Failed to save: {e}")
+            else:
+                QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _show_prometheus_metrics(self):
+        """Show Prometheus metrics."""
+        response = self.client.sys_metrics(format='prometheus')
+        if response.ok:
+            # Metrics are text, show in a text dialog
+            from PySide6.QtWidgets import QTextEdit
+            dialog = QDialog()
+            dialog.setWindowTitle("Prometheus Metrics")
+            dialog.setMinimumSize(800, 600)
+            layout = QVBoxLayout(dialog)
+            
+            text = QTextEdit()
+            text.setReadOnly(True)
+            text.setPlainText(str(response.data))
+            layout.addWidget(text)
+            
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _show_audited_request_headers(self):
+        """Show audited request headers configuration."""
+        response = self.client.sys_config_auditing_request_headers()
+        if response.ok:
+            dialog = JsonEditorDialog("Audited Request Headers", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _show_license_info(self):
+        """Show license information."""
+        response = self.client.sys_license()
+        if response.ok:
+            dialog = JsonEditorDialog("License Info", response.data, readonly=True)
+            dialog.exec()
+        else:
+            # Community edition doesn't have license endpoint
+            QMessageBox.information(None, "License", "Community Edition (no license required)")
+    
+    def _show_ui_mounts(self):
+        """Show internal UI mounts."""
+        response = self.client.sys_internal_ui_mounts()
+        if response.ok:
+            dialog = JsonEditorDialog("UI Mounts", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _show_ui_namespaces(self):
+        """Show internal UI namespaces."""
+        response = self.client.sys_internal_ui_namespaces()
+        if response.ok:
+            dialog = JsonEditorDialog("UI Namespaces", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _show_openapi_spec(self):
+        """Show OpenAPI specification."""
+        response = self.client.sys_internal_specs_openapi()
+        if response.ok:
+            dialog = JsonEditorDialog("OpenAPI Specification", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _check_capabilities_self(self):
+        """Check capabilities of current token on paths."""
+        paths, ok = QInputDialog.getText(None, "Check My Capabilities", 
+                                         "Paths (comma-separated):")
+        if ok and paths:
+            path_list = [p.strip() for p in paths.split(',')]
+            response = self.client.sys_capabilities_self(path_list)
+            if response.ok:
+                dialog = JsonEditorDialog("My Capabilities", response.data, readonly=True)
+                dialog.exec()
+            else:
+                QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _show_pprof(self):
+        """Show pprof index."""
+        response = self.client.sys_pprof_index()
+        if response.ok:
+            dialog = JsonEditorDialog("pprof Index", response.data, readonly=True)
+            dialog.exec()
+        else:
+            QMessageBox.warning(None, "Error", f"Failed: {response.error}")
+    
+    def _show_monitor_logs(self):
+        """Show monitor logs."""
+        log_levels = ['trace', 'debug', 'info', 'warn', 'error']
+        level, ok = QInputDialog.getItem(None, "Monitor Logs", "Log level:", log_levels, 2, False)
+        if ok:
+            response = self.client.sys_monitor(log_level=level)
+            if response.ok:
+                from PySide6.QtWidgets import QTextEdit
+                dialog = QDialog()
+                dialog.setWindowTitle(f"Monitor Logs ({level})")
+                dialog.setMinimumSize(800, 600)
+                layout = QVBoxLayout(dialog)
+                
+                text = QTextEdit()
+                text.setReadOnly(True)
+                text.setPlainText(str(response.data))
+                layout.addWidget(text)
+                
+                dialog.exec()
+            else:
+                QMessageBox.warning(None, "Error", f"Failed: {response.error}")
     
     def _create_tools_menu(self) -> QMenu:
         menu = QMenu("🔧 Tools")
@@ -2846,15 +4919,47 @@ class OpenBaoMenuBuilder(QObject):
                 self.notification.emit("Lease Revoked", "Lease revoked successfully")
     
     def _enable_secrets_engine(self):
-        path, ok = QInputDialog.getText(None, "Enable Secrets Engine", "Mount path:")
-        if not ok or not path:
-            return
-        engine_type, ok = QInputDialog.getItem(None, "Engine Type", "Select type:",
-            ['kv', 'transit', 'pki', 'database', 'aws', 'ssh'], 0, False)
-        if ok and engine_type:
-            response = self.client.enable_secrets_engine(path, engine_type)
-            if response.ok:
-                self.notification.emit("Engine Enabled", f"Secrets engine {path} enabled")
+        """Enable a new secrets engine with full configuration dialog."""
+        from app.dialogs import EnableEngineDialog
+        
+        # Try to fetch available plugins
+        plugins = []
+        response = self.client.sys_plugins_catalog_list()
+        if response.ok and response.data:
+            data = response.data.get('data', response.data)
+            # Plugins are categorized by type
+            for plugin_type in ['secret', 'database', 'auth']:
+                type_plugins = data.get(plugin_type, [])
+                if isinstance(type_plugins, list):
+                    plugins.extend(type_plugins)
+        
+        dialog = EnableEngineDialog(available_plugins=plugins)
+        dialog.saved.connect(self._do_enable_secrets_engine)
+        dialog.exec()
+    
+    def _do_enable_secrets_engine(self, path: str, engine_type: str, config: Dict):
+        """Actually enable the secrets engine."""
+        # Build config dict only with non-empty TTL values
+        engine_config = {}
+        if config.get('default_lease_ttl'):
+            engine_config['default_lease_ttl'] = config['default_lease_ttl']
+        if config.get('max_lease_ttl'):
+            engine_config['max_lease_ttl'] = config['max_lease_ttl']
+        
+        response = self.client.enable_secrets_engine(
+            path=path,
+            engine_type=engine_type,
+            description=config.get('description') or None,
+            config=engine_config if engine_config else None,
+            options=config.get('options'),
+            local=config.get('local', False),
+            seal_wrap=config.get('seal_wrap', False)
+        )
+        
+        if response.ok:
+            self.notification.emit("Engine Enabled", f"Secrets engine '{path}' ({engine_type}) enabled successfully")
+        else:
+            QMessageBox.warning(None, "Error", f"Failed to enable engine: {response.error}")
     
     def _enable_auth_method(self):
         path, ok = QInputDialog.getText(None, "Enable Auth Method", "Mount path:")

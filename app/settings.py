@@ -31,7 +31,8 @@ KEYRING_SERVICE = "opentongchi"
 # Fields that should be stored securely in keyring
 SECRET_FIELDS = {
     'openbao': ['token'],
-    'opentofu': ['hcp_token'],
+    'opentofu': [],
+    'hcp': ['client_id', 'client_secret', 'hcp_terraform_token'],
     'consul': ['token'],
     'nomad': ['token'],
     'boundary': ['token', 'password'],
@@ -162,22 +163,57 @@ class OpenBaoSettings:
 class OpenTofuSettings:
     """OpenTofu (Terraform) settings."""
     home_dir: str = ""
-    hcp_token: str = ""  # Stored in keyring
-    hcp_org: str = ""
     binary_path: str = "tofu"
     
     def load_from_env(self):
         """Load settings from environment variables."""
         default_home = str(Path.home() / "opentofu")
         self.home_dir = os.environ.get('TOFU_HOME', os.environ.get('TF_HOME', default_home))
-        self.hcp_token = os.environ.get('TFE_TOKEN', os.environ.get('TFC_TOKEN', self.hcp_token))
-        self.hcp_org = os.environ.get('TFE_ORG', self.hcp_org)
         # Try to find tofu or terraform binary
         if not self.binary_path or self.binary_path == "tofu":
             for binary in ['tofu', 'terraform']:
                 if os.system(f'which {binary} > /dev/null 2>&1') == 0:
                     self.binary_path = binary
                     break
+
+
+@dataclass
+class HCPSettings:
+    """HCP (HashiCorp Cloud Platform) settings.
+    
+    Cloud services auth: OAuth2 client_credentials with client_id/client_secret.
+    HCP Terraform auth: separate TFE bearer token against app.terraform.io.
+    """
+    # OAuth2 service principal credentials for HCP Cloud API
+    client_id: str = ""        # Stored in keyring
+    client_secret: str = ""    # Stored in keyring
+    organization_id: str = ""
+    organization_name: str = ""
+    project_id: str = ""
+    project_name: str = ""
+    # Endpoint URLs (configurable for EU region or self-hosted)
+    hcp_api_url: str = "https://api.cloud.hashicorp.com"
+    hcp_auth_url: str = "https://auth.idp.hashicorp.com"
+    # HCP Terraform (app.terraform.io) — separate token
+    hcp_terraform_url: str = "https://app.terraform.io"
+    hcp_terraform_token: str = ""  # Stored in keyring
+    hcp_terraform_org: str = ""
+
+    def load_from_env(self):
+        """Load settings from environment variables."""
+        self.client_id = os.environ.get('HCP_CLIENT_ID', self.client_id)
+        self.client_secret = os.environ.get('HCP_CLIENT_SECRET', self.client_secret)
+        self.organization_id = os.environ.get('HCP_ORGANIZATION_ID',
+                                               os.environ.get('ORGANIZATION_ID', self.organization_id))
+        self.project_id = os.environ.get('HCP_PROJECT_ID',
+                                          os.environ.get('PROJECT_ID', self.project_id))
+        self.hcp_api_url = os.environ.get('HCP_API_URL', self.hcp_api_url)
+        self.hcp_auth_url = os.environ.get('HCP_AUTH_URL', self.hcp_auth_url)
+        self.hcp_terraform_url = os.environ.get('TFE_ADDRESS',
+                                                 os.environ.get('TFE_URL', self.hcp_terraform_url))
+        self.hcp_terraform_token = os.environ.get('TFE_TOKEN',
+                                                   os.environ.get('TFC_TOKEN', self.hcp_terraform_token))
+        self.hcp_terraform_org = os.environ.get('TFE_ORG', self.hcp_terraform_org)
 
 
 @dataclass
@@ -295,6 +331,7 @@ class SettingsManager:
         self.global_settings = GlobalSettings()
         self.openbao = OpenBaoSettings()
         self.opentofu = OpenTofuSettings()
+        self.hcp = HCPSettings()
         self.consul = ConsulSettings()
         self.nomad = NomadSettings()
         self.boundary = BoundarySettings()
@@ -321,6 +358,7 @@ class SettingsManager:
         self.global_settings.load_from_env()
         self.openbao.load_from_env()
         self.opentofu.load_from_env()
+        self.hcp.load_from_env()
         self.consul.load_from_env()
         self.nomad.load_from_env()
         self.boundary.load_from_env()
@@ -358,6 +396,7 @@ class SettingsManager:
         for name, obj in [
             ("openbao", self.openbao),
             ("opentofu", self.opentofu),
+            ("hcp", self.hcp),
             ("consul", self.consul),
             ("nomad", self.nomad),
             ("boundary", self.boundary),
@@ -443,6 +482,7 @@ class SettingsManager:
         for name, obj in [
             ("openbao", self.openbao),
             ("opentofu", self.opentofu),
+            ("hcp", self.hcp),
             ("consul", self.consul),
             ("nomad", self.nomad),
             ("boundary", self.boundary),

@@ -122,11 +122,27 @@ class OpenBaoClient(BaseHTTPClient):
         return self.get(f'/v1/sys/mounts/{path}')
     
     def enable_secrets_engine(self, path: str, engine_type: str,
-                               options: Dict = None) -> APIResponse:
+                               description: str = None, config: Dict = None,
+                               options: Dict = None, local: bool = False,
+                               seal_wrap: bool = False) -> APIResponse:
         """Enable a secrets engine."""
         data = {'type': engine_type}
+        if description:
+            data['description'] = description
+        if config:
+            # Filter out None/empty values from config
+            filtered_config = {k: v for k, v in config.items() if v}
+            if filtered_config:
+                data['config'] = filtered_config
         if options:
-            data['options'] = options
+            # Filter out None/empty values from options
+            filtered_options = {k: v for k, v in options.items() if v}
+            if filtered_options:
+                data['options'] = filtered_options
+        if local:
+            data['local'] = True
+        if seal_wrap:
+            data['seal_wrap'] = True
         return self.post(f'/v1/sys/mounts/{path}', data)
     
     def disable_secrets_engine(self, path: str) -> APIResponse:
@@ -1119,3 +1135,992 @@ class OpenBaoClient(BaseHTTPClient):
                     options = mounts[mount_key].get('options', {})
                     return options.get('version') == '2'
         return False
+
+    # ==================== Database Secrets Engine ====================
+    
+    def db_list_connections(self, mount: str = "database") -> APIResponse:
+        """List database connections."""
+        return self._request("GET", f"/{mount}/config", list_request=True)
+    
+    def db_read_connection(self, mount: str, name: str) -> APIResponse:
+        """Read database connection configuration."""
+        return self._request("GET", f"/{mount}/config/{name}")
+    
+    def db_create_connection(self, mount: str, name: str, plugin_name: str,
+                              connection_url: str, allowed_roles: List[str] = None,
+                              username: str = None, password: str = None,
+                              verify_connection: bool = True,
+                              **kwargs) -> APIResponse:
+        """Create or update a database connection."""
+        data = {
+            "plugin_name": plugin_name,
+            "connection_url": connection_url,
+            "verify_connection": verify_connection,
+        }
+        if allowed_roles:
+            data["allowed_roles"] = allowed_roles
+        if username:
+            data["username"] = username
+        if password:
+            data["password"] = password
+        data.update(kwargs)
+        return self._request("POST", f"/{mount}/config/{name}", data=data)
+    
+    def db_delete_connection(self, mount: str, name: str) -> APIResponse:
+        """Delete a database connection."""
+        return self._request("DELETE", f"/{mount}/config/{name}")
+    
+    def db_reset_connection(self, mount: str, name: str) -> APIResponse:
+        """Reset a database connection (close and reconnect)."""
+        return self._request("POST", f"/{mount}/reset/{name}")
+    
+    def db_rotate_root(self, mount: str, name: str) -> APIResponse:
+        """Rotate the root credentials for a database connection."""
+        return self._request("POST", f"/{mount}/rotate-root/{name}")
+    
+    def db_list_roles(self, mount: str = "database") -> APIResponse:
+        """List database roles."""
+        return self._request("GET", f"/{mount}/roles", list_request=True)
+    
+    def db_read_role(self, mount: str, role_name: str) -> APIResponse:
+        """Read a database role."""
+        return self._request("GET", f"/{mount}/roles/{role_name}")
+    
+    def db_create_role(self, mount: str, role_name: str, db_name: str,
+                       creation_statements: List[str],
+                       revocation_statements: List[str] = None,
+                       rollback_statements: List[str] = None,
+                       renew_statements: List[str] = None,
+                       default_ttl: str = None, max_ttl: str = None,
+                       **kwargs) -> APIResponse:
+        """Create or update a database role."""
+        data = {
+            "db_name": db_name,
+            "creation_statements": creation_statements,
+        }
+        if revocation_statements:
+            data["revocation_statements"] = revocation_statements
+        if rollback_statements:
+            data["rollback_statements"] = rollback_statements
+        if renew_statements:
+            data["renew_statements"] = renew_statements
+        if default_ttl:
+            data["default_ttl"] = default_ttl
+        if max_ttl:
+            data["max_ttl"] = max_ttl
+        data.update(kwargs)
+        return self._request("POST", f"/{mount}/roles/{role_name}", data=data)
+    
+    def db_delete_role(self, mount: str, role_name: str) -> APIResponse:
+        """Delete a database role."""
+        return self._request("DELETE", f"/{mount}/roles/{role_name}")
+    
+    def db_list_static_roles(self, mount: str = "database") -> APIResponse:
+        """List static database roles."""
+        return self._request("GET", f"/{mount}/static-roles", list_request=True)
+    
+    def db_read_static_role(self, mount: str, role_name: str) -> APIResponse:
+        """Read a static database role."""
+        return self._request("GET", f"/{mount}/static-roles/{role_name}")
+    
+    def db_create_static_role(self, mount: str, role_name: str, db_name: str,
+                               username: str, rotation_period: str,
+                               rotation_statements: List[str] = None,
+                               **kwargs) -> APIResponse:
+        """Create or update a static database role."""
+        data = {
+            "db_name": db_name,
+            "username": username,
+            "rotation_period": rotation_period,
+        }
+        if rotation_statements:
+            data["rotation_statements"] = rotation_statements
+        data.update(kwargs)
+        return self._request("POST", f"/{mount}/static-roles/{role_name}", data=data)
+    
+    def db_delete_static_role(self, mount: str, role_name: str) -> APIResponse:
+        """Delete a static database role."""
+        return self._request("DELETE", f"/{mount}/static-roles/{role_name}")
+    
+    def db_generate_creds(self, mount: str, role_name: str) -> APIResponse:
+        """Generate credentials for a database role."""
+        return self._request("GET", f"/{mount}/creds/{role_name}")
+    
+    def db_get_static_creds(self, mount: str, role_name: str) -> APIResponse:
+        """Get credentials for a static database role."""
+        return self._request("GET", f"/{mount}/static-creds/{role_name}")
+    
+    def db_rotate_static_role(self, mount: str, role_name: str) -> APIResponse:
+        """Rotate credentials for a static database role."""
+        return self._request("POST", f"/{mount}/rotate-role/{role_name}")
+
+    # ==================== SSH Secrets Engine ====================
+    
+    def ssh_read_ca(self, mount: str = "ssh") -> APIResponse:
+        """Read the SSH CA public key."""
+        return self._request("GET", f"/{mount}/config/ca")
+    
+    def ssh_configure_ca(self, mount: str, private_key: str = None,
+                          public_key: str = None, generate_signing_key: bool = True,
+                          key_type: str = "ssh-rsa", key_bits: int = 0) -> APIResponse:
+        """Configure the SSH CA."""
+        data = {"generate_signing_key": generate_signing_key}
+        if private_key:
+            data["private_key"] = private_key
+        if public_key:
+            data["public_key"] = public_key
+        if key_type:
+            data["key_type"] = key_type
+        if key_bits:
+            data["key_bits"] = key_bits
+        return self._request("POST", f"/{mount}/config/ca", data=data)
+    
+    def ssh_delete_ca(self, mount: str = "ssh") -> APIResponse:
+        """Delete the SSH CA configuration."""
+        return self._request("DELETE", f"/{mount}/config/ca")
+    
+    def ssh_read_zeroaddress(self, mount: str = "ssh") -> APIResponse:
+        """Read the zero-address configuration."""
+        return self._request("GET", f"/{mount}/config/zeroaddress")
+    
+    def ssh_configure_zeroaddress(self, mount: str, roles: List[str]) -> APIResponse:
+        """Configure zero-address roles."""
+        return self._request("POST", f"/{mount}/config/zeroaddress", data={"roles": roles})
+    
+    def ssh_delete_zeroaddress(self, mount: str = "ssh") -> APIResponse:
+        """Delete the zero-address configuration."""
+        return self._request("DELETE", f"/{mount}/config/zeroaddress")
+    
+    def ssh_list_roles(self, mount: str = "ssh") -> APIResponse:
+        """List SSH roles."""
+        return self._request("GET", f"/{mount}/roles", list_request=True)
+    
+    def ssh_read_role(self, mount: str, role_name: str) -> APIResponse:
+        """Read an SSH role."""
+        return self._request("GET", f"/{mount}/roles/{role_name}")
+    
+    def ssh_create_role(self, mount: str, role_name: str, key_type: str,
+                        default_user: str = None, allowed_users: str = None,
+                        allowed_domains: str = None, cidr_list: str = None,
+                        allowed_extensions: str = None,
+                        default_extensions: Dict = None,
+                        allowed_user_key_lengths: Dict = None,
+                        ttl: str = None, max_ttl: str = None,
+                        algorithm_signer: str = None,
+                        allow_user_certificates: bool = True,
+                        allow_host_certificates: bool = False,
+                        **kwargs) -> APIResponse:
+        """Create or update an SSH role."""
+        data = {"key_type": key_type}
+        if default_user:
+            data["default_user"] = default_user
+        if allowed_users:
+            data["allowed_users"] = allowed_users
+        if allowed_domains:
+            data["allowed_domains"] = allowed_domains
+        if cidr_list:
+            data["cidr_list"] = cidr_list
+        if allowed_extensions:
+            data["allowed_extensions"] = allowed_extensions
+        if default_extensions:
+            data["default_extensions"] = default_extensions
+        if allowed_user_key_lengths:
+            data["allowed_user_key_lengths"] = allowed_user_key_lengths
+        if ttl:
+            data["ttl"] = ttl
+        if max_ttl:
+            data["max_ttl"] = max_ttl
+        if algorithm_signer:
+            data["algorithm_signer"] = algorithm_signer
+        if key_type == "ca":
+            data["allow_user_certificates"] = allow_user_certificates
+            data["allow_host_certificates"] = allow_host_certificates
+        data.update(kwargs)
+        return self._request("POST", f"/{mount}/roles/{role_name}", data=data)
+    
+    def ssh_delete_role(self, mount: str, role_name: str) -> APIResponse:
+        """Delete an SSH role."""
+        return self._request("DELETE", f"/{mount}/roles/{role_name}")
+    
+    def ssh_sign_key(self, mount: str, role_name: str, public_key: str,
+                     valid_principals: str = None, cert_type: str = "user",
+                     ttl: str = None, extensions: Dict = None,
+                     critical_options: Dict = None) -> APIResponse:
+        """Sign an SSH public key."""
+        data = {"public_key": public_key, "cert_type": cert_type}
+        if valid_principals:
+            data["valid_principals"] = valid_principals
+        if ttl:
+            data["ttl"] = ttl
+        if extensions:
+            data["extensions"] = extensions
+        if critical_options:
+            data["critical_options"] = critical_options
+        return self._request("POST", f"/{mount}/sign/{role_name}", data=data)
+    
+    def ssh_issue_credentials(self, mount: str, role_name: str,
+                               key_type: str = "ssh-rsa", key_bits: int = 0,
+                               ttl: str = None, valid_principals: str = None,
+                               extensions: Dict = None,
+                               critical_options: Dict = None) -> APIResponse:
+        """Issue SSH credentials (key pair + certificate)."""
+        data = {"key_type": key_type}
+        if key_bits:
+            data["key_bits"] = key_bits
+        if ttl:
+            data["ttl"] = ttl
+        if valid_principals:
+            data["valid_principals"] = valid_principals
+        if extensions:
+            data["extensions"] = extensions
+        if critical_options:
+            data["critical_options"] = critical_options
+        return self._request("POST", f"/{mount}/issue/{role_name}", data=data)
+    
+    def ssh_verify_otp(self, mount: str, otp: str) -> APIResponse:
+        """Verify an SSH OTP."""
+        return self._request("POST", f"/{mount}/verify", data={"otp": otp})
+
+    # ==================== System (sys) Endpoints ====================
+    
+    def sys_capabilities(self, paths: List[str], token: str = None) -> APIResponse:
+        """Check capabilities for paths."""
+        data = {"paths": paths}
+        if token:
+            data["token"] = token
+        endpoint = "/sys/capabilities" if token else "/sys/capabilities-self"
+        return self._request("POST", endpoint, data=data)
+    
+    def sys_internal_counters_activity(self) -> APIResponse:
+        """Get client activity data."""
+        return self._request("GET", "/sys/internal/counters/activity")
+    
+    def sys_internal_counters_tokens(self) -> APIResponse:
+        """Get token count."""
+        return self._request("GET", "/sys/internal/counters/tokens")
+    
+    def sys_internal_counters_entities(self) -> APIResponse:
+        """Get entity count."""
+        return self._request("GET", "/sys/internal/counters/entities")
+    
+    def sys_internal_specs_openapi(self) -> APIResponse:
+        """Get OpenAPI spec."""
+        return self._request("GET", "/sys/internal/specs/openapi")
+    
+    def sys_config_state_sanitized(self) -> APIResponse:
+        """Get sanitized configuration."""
+        return self._request("GET", "/sys/config/state/sanitized")
+    
+    def sys_host_info(self) -> APIResponse:
+        """Get host information."""
+        return self._request("GET", "/sys/host-info")
+    
+    def sys_in_flight_requests(self) -> APIResponse:
+        """Get in-flight requests."""
+        return self._request("GET", "/sys/in-flight-req")
+    
+    def sys_metrics(self, format: str = "prometheus") -> APIResponse:
+        """Get metrics."""
+        return self._request("GET", f"/sys/metrics?format={format}")
+    
+    def sys_pprof(self, profile: str = "profile") -> APIResponse:
+        """Get pprof data (profile, heap, goroutine, etc.)."""
+        return self._request("GET", f"/sys/pprof/{profile}")
+    
+    def sys_seal(self) -> APIResponse:
+        """Seal the vault."""
+        return self._request("PUT", "/sys/seal")
+    
+    def sys_unseal(self, key: str, reset: bool = False, migrate: bool = False) -> APIResponse:
+        """Unseal the vault."""
+        data = {"key": key, "reset": reset, "migrate": migrate}
+        return self._request("PUT", "/sys/unseal", data=data)
+    
+    def sys_step_down(self) -> APIResponse:
+        """Force the active node to step down."""
+        return self._request("PUT", "/sys/step-down")
+    
+    def sys_generate_root_init(self, otp: str = None, pgp_key: str = None) -> APIResponse:
+        """Initialize root token generation."""
+        data = {}
+        if otp:
+            data["otp"] = otp
+        if pgp_key:
+            data["pgp_key"] = pgp_key
+        return self._request("PUT", "/sys/generate-root/attempt", data=data)
+    
+    def sys_generate_root_update(self, key: str, nonce: str) -> APIResponse:
+        """Update root token generation with unseal key."""
+        return self._request("PUT", "/sys/generate-root/update", data={"key": key, "nonce": nonce})
+    
+    def sys_generate_root_cancel(self) -> APIResponse:
+        """Cancel root token generation."""
+        return self._request("DELETE", "/sys/generate-root/attempt")
+    
+    def sys_rekey_init(self, secret_shares: int, secret_threshold: int,
+                       pgp_keys: List[str] = None, backup: bool = False) -> APIResponse:
+        """Initialize rekey operation."""
+        data = {
+            "secret_shares": secret_shares,
+            "secret_threshold": secret_threshold,
+            "backup": backup,
+        }
+        if pgp_keys:
+            data["pgp_keys"] = pgp_keys
+        return self._request("PUT", "/sys/rekey/init", data=data)
+    
+    def sys_rekey_update(self, key: str, nonce: str) -> APIResponse:
+        """Update rekey with unseal key."""
+        return self._request("PUT", "/sys/rekey/update", data={"key": key, "nonce": nonce})
+    
+    def sys_rekey_cancel(self) -> APIResponse:
+        """Cancel rekey operation."""
+        return self._request("DELETE", "/sys/rekey/init")
+    
+    def sys_rekey_status(self) -> APIResponse:
+        """Get rekey status."""
+        return self._request("GET", "/sys/rekey/init")
+    
+    def sys_rekey_verify_status(self) -> APIResponse:
+        """Get rekey verification status."""
+        return self._request("GET", "/sys/rekey/verify")
+    
+    def sys_plugins_catalog(self) -> APIResponse:
+        """List all registered plugins."""
+        return self._request("GET", "/sys/plugins/catalog")
+    
+    def sys_plugins_catalog_type(self, plugin_type: str) -> APIResponse:
+        """List plugins by type (auth, database, secret)."""
+        return self._request("GET", f"/sys/plugins/catalog/{plugin_type}", list_request=True)
+    
+    def sys_plugins_read(self, plugin_type: str, name: str) -> APIResponse:
+        """Read plugin info."""
+        return self._request("GET", f"/sys/plugins/catalog/{plugin_type}/{name}")
+    
+    def sys_plugins_register(self, plugin_type: str, name: str, sha256: str,
+                              command: str, args: List[str] = None,
+                              env: List[str] = None) -> APIResponse:
+        """Register a plugin."""
+        data = {"sha256": sha256, "command": command}
+        if args:
+            data["args"] = args
+        if env:
+            data["env"] = env
+        return self._request("PUT", f"/sys/plugins/catalog/{plugin_type}/{name}", data=data)
+    
+    def sys_plugins_deregister(self, plugin_type: str, name: str) -> APIResponse:
+        """Deregister a plugin."""
+        return self._request("DELETE", f"/sys/plugins/catalog/{plugin_type}/{name}")
+    
+    def sys_plugins_reload(self, plugin: str = None, mounts: List[str] = None) -> APIResponse:
+        """Reload plugins."""
+        data = {}
+        if plugin:
+            data["plugin"] = plugin
+        if mounts:
+            data["mounts"] = mounts
+        return self._request("PUT", "/sys/plugins/reload/backend", data=data)
+    
+    def sys_tools_random(self, bytes_count: int = 32, format: str = "base64") -> APIResponse:
+        """Generate random bytes."""
+        return self._request("POST", f"/sys/tools/random/{bytes_count}", data={"format": format})
+    
+    def sys_tools_hash(self, input_data: str, algorithm: str = "sha2-256",
+                       format: str = "base64") -> APIResponse:
+        """Hash data."""
+        return self._request("POST", f"/sys/tools/hash/{algorithm}",
+                           data={"input": input_data, "format": format})
+    
+    def sys_license(self) -> APIResponse:
+        """Get license info (Enterprise only)."""
+        return self._request("GET", "/sys/license")
+    
+    def sys_replication_status(self) -> APIResponse:
+        """Get replication status."""
+        return self._request("GET", "/sys/replication/status")
+    
+    def sys_storage_raft_configuration(self) -> APIResponse:
+        """Get Raft storage configuration."""
+        return self._request("GET", "/sys/storage/raft/configuration")
+    
+    def sys_storage_raft_autopilot_state(self) -> APIResponse:
+        """Get Raft autopilot state."""
+        return self._request("GET", "/sys/storage/raft/autopilot/state")
+    
+    def sys_storage_raft_snapshot(self) -> APIResponse:
+        """Take a Raft snapshot."""
+        return self._request("GET", "/sys/storage/raft/snapshot")
+    
+    def sys_ha_status(self) -> APIResponse:
+        """Get HA status."""
+        return self._request("GET", "/sys/ha-status")
+    
+    def sys_key_status(self) -> APIResponse:
+        """Get encryption key status."""
+        return self._request("GET", "/sys/key-status")
+    
+    def sys_rotate(self) -> APIResponse:
+        """Rotate the encryption key."""
+        return self._request("PUT", "/sys/rotate")
+    
+    def sys_wrapping_lookup(self, token: str) -> APIResponse:
+        """Look up wrapping token info."""
+        return self._request("POST", "/sys/wrapping/lookup", data={"token": token})
+    
+    def sys_wrapping_rewrap(self, token: str) -> APIResponse:
+        """Rewrap a wrapping token."""
+        return self._request("POST", "/sys/wrapping/rewrap", data={"token": token})
+    
+    def sys_wrapping_unwrap(self, token: str = None) -> APIResponse:
+        """Unwrap a wrapping token."""
+        data = {"token": token} if token else {}
+        return self._request("POST", "/sys/wrapping/unwrap", data=data)
+    
+    def sys_mounts_tune(self, path: str, default_lease_ttl: str = None,
+                        max_lease_ttl: str = None, description: str = None,
+                        audit_non_hmac_request_keys: List[str] = None,
+                        audit_non_hmac_response_keys: List[str] = None,
+                        listing_visibility: str = None,
+                        passthrough_request_headers: List[str] = None) -> APIResponse:
+        """Tune a secrets engine mount."""
+        data = {}
+        if default_lease_ttl:
+            data["default_lease_ttl"] = default_lease_ttl
+        if max_lease_ttl:
+            data["max_lease_ttl"] = max_lease_ttl
+        if description:
+            data["description"] = description
+        if audit_non_hmac_request_keys:
+            data["audit_non_hmac_request_keys"] = audit_non_hmac_request_keys
+        if audit_non_hmac_response_keys:
+            data["audit_non_hmac_response_keys"] = audit_non_hmac_response_keys
+        if listing_visibility:
+            data["listing_visibility"] = listing_visibility
+        if passthrough_request_headers:
+            data["passthrough_request_headers"] = passthrough_request_headers
+        return self._request("POST", f"/sys/mounts/{path}/tune", data=data)
+    
+    def sys_mounts_read_tune(self, path: str) -> APIResponse:
+        """Read mount tune settings."""
+        return self._request("GET", f"/sys/mounts/{path}/tune")
+    
+    # ==================== Database Secrets Engine ====================
+    
+    def database_list_connections(self, mount: str = "database") -> APIResponse:
+        """List all database connections."""
+        return self.api_list(f"{mount}/config")
+    
+    def database_read_connection(self, mount: str, name: str) -> APIResponse:
+        """Read a database connection configuration."""
+        return self.api_read(f"{mount}/config/{name}")
+    
+    def database_create_connection(self, mount: str, name: str, plugin_name: str,
+                                   connection_url: str, allowed_roles: List[str] = None,
+                                   username: str = None, password: str = None,
+                                   **kwargs) -> APIResponse:
+        """Create or update a database connection."""
+        data = {
+            'plugin_name': plugin_name,
+            'connection_url': connection_url,
+        }
+        if allowed_roles:
+            data['allowed_roles'] = allowed_roles
+        if username:
+            data['username'] = username
+        if password:
+            data['password'] = password
+        data.update(kwargs)
+        return self.api_write(f"{mount}/config/{name}", data)
+    
+    def database_delete_connection(self, mount: str, name: str) -> APIResponse:
+        """Delete a database connection."""
+        return self.api_delete(f"{mount}/config/{name}")
+    
+    def database_reset_connection(self, mount: str, name: str) -> APIResponse:
+        """Reset a database connection (close and reopen)."""
+        return self.api_write(f"{mount}/reset/{name}")
+    
+    def database_rotate_root(self, mount: str, name: str) -> APIResponse:
+        """Rotate the root credentials for a database connection."""
+        return self.api_write(f"{mount}/rotate-root/{name}")
+    
+    def database_list_roles(self, mount: str = "database") -> APIResponse:
+        """List all database roles."""
+        return self.api_list(f"{mount}/roles")
+    
+    def database_read_role(self, mount: str, role_name: str) -> APIResponse:
+        """Read a database role."""
+        return self.api_read(f"{mount}/roles/{role_name}")
+    
+    def database_create_role(self, mount: str, role_name: str, db_name: str,
+                             creation_statements: List[str],
+                             revocation_statements: List[str] = None,
+                             rollback_statements: List[str] = None,
+                             renew_statements: List[str] = None,
+                             default_ttl: str = None, max_ttl: str = None,
+                             **kwargs) -> APIResponse:
+        """Create or update a database role."""
+        data = {
+            'db_name': db_name,
+            'creation_statements': creation_statements,
+        }
+        if revocation_statements:
+            data['revocation_statements'] = revocation_statements
+        if rollback_statements:
+            data['rollback_statements'] = rollback_statements
+        if renew_statements:
+            data['renew_statements'] = renew_statements
+        if default_ttl:
+            data['default_ttl'] = default_ttl
+        if max_ttl:
+            data['max_ttl'] = max_ttl
+        data.update(kwargs)
+        return self.api_write(f"{mount}/roles/{role_name}", data)
+    
+    def database_delete_role(self, mount: str, role_name: str) -> APIResponse:
+        """Delete a database role."""
+        return self.api_delete(f"{mount}/roles/{role_name}")
+    
+    def database_list_static_roles(self, mount: str = "database") -> APIResponse:
+        """List all static database roles."""
+        return self.api_list(f"{mount}/static-roles")
+    
+    def database_read_static_role(self, mount: str, role_name: str) -> APIResponse:
+        """Read a static database role."""
+        return self.api_read(f"{mount}/static-roles/{role_name}")
+    
+    def database_create_static_role(self, mount: str, role_name: str, db_name: str,
+                                    username: str, rotation_period: str,
+                                    rotation_statements: List[str] = None,
+                                    **kwargs) -> APIResponse:
+        """Create or update a static database role."""
+        data = {
+            'db_name': db_name,
+            'username': username,
+            'rotation_period': rotation_period,
+        }
+        if rotation_statements:
+            data['rotation_statements'] = rotation_statements
+        data.update(kwargs)
+        return self.api_write(f"{mount}/static-roles/{role_name}", data)
+    
+    def database_delete_static_role(self, mount: str, role_name: str) -> APIResponse:
+        """Delete a static database role."""
+        return self.api_delete(f"{mount}/static-roles/{role_name}")
+    
+    def database_generate_creds(self, mount: str, role_name: str) -> APIResponse:
+        """Generate credentials for a database role."""
+        return self.api_read(f"{mount}/creds/{role_name}")
+    
+    def database_get_static_creds(self, mount: str, role_name: str) -> APIResponse:
+        """Get credentials for a static database role."""
+        return self.api_read(f"{mount}/static-creds/{role_name}")
+    
+    def database_rotate_static_role(self, mount: str, role_name: str) -> APIResponse:
+        """Rotate credentials for a static database role."""
+        return self.api_write(f"{mount}/rotate-role/{role_name}")
+    
+    # ==================== SSH Secrets Engine ====================
+    
+    def ssh_read_ca_config(self, mount: str = "ssh") -> APIResponse:
+        """Read the SSH CA public key."""
+        return self.api_read(f"{mount}/config/ca")
+    
+    def ssh_configure_ca(self, mount: str, private_key: str = None,
+                         public_key: str = None, generate_signing_key: bool = True,
+                         key_type: str = "ssh-rsa", key_bits: int = 0) -> APIResponse:
+        """Configure the SSH CA."""
+        data = {'generate_signing_key': generate_signing_key}
+        if private_key:
+            data['private_key'] = private_key
+        if public_key:
+            data['public_key'] = public_key
+        if key_type:
+            data['key_type'] = key_type
+        if key_bits:
+            data['key_bits'] = key_bits
+        return self.api_write(f"{mount}/config/ca", data)
+    
+    def ssh_delete_ca(self, mount: str = "ssh") -> APIResponse:
+        """Delete the SSH CA configuration."""
+        return self.api_delete(f"{mount}/config/ca")
+    
+    def ssh_read_zeroaddress(self, mount: str = "ssh") -> APIResponse:
+        """Read the zero-address configuration."""
+        return self.api_read(f"{mount}/config/zeroaddress")
+    
+    def ssh_configure_zeroaddress(self, mount: str, roles: List[str]) -> APIResponse:
+        """Configure zero-address roles."""
+        return self.api_write(f"{mount}/config/zeroaddress", {'roles': roles})
+    
+    def ssh_delete_zeroaddress(self, mount: str = "ssh") -> APIResponse:
+        """Delete the zero-address configuration."""
+        return self.api_delete(f"{mount}/config/zeroaddress")
+    
+    def ssh_list_roles(self, mount: str = "ssh") -> APIResponse:
+        """List all SSH roles."""
+        return self.api_list(f"{mount}/roles")
+    
+    def ssh_read_role(self, mount: str, role_name: str) -> APIResponse:
+        """Read an SSH role."""
+        return self.api_read(f"{mount}/roles/{role_name}")
+    
+    def ssh_create_role(self, mount: str, role_name: str, key_type: str,
+                        default_user: str = None, allowed_users: str = None,
+                        allowed_domains: str = None, ttl: str = None,
+                        max_ttl: str = None, allowed_extensions: str = None,
+                        default_extensions: Dict = None,
+                        allowed_critical_options: str = None,
+                        allow_user_certificates: bool = True,
+                        allow_host_certificates: bool = False,
+                        allow_bare_domains: bool = False,
+                        allow_subdomains: bool = False,
+                        allow_user_key_ids: bool = False,
+                        algorithm_signer: str = None,
+                        **kwargs) -> APIResponse:
+        """Create or update an SSH role."""
+        data = {'key_type': key_type}
+        if default_user:
+            data['default_user'] = default_user
+        if allowed_users:
+            data['allowed_users'] = allowed_users
+        if allowed_domains:
+            data['allowed_domains'] = allowed_domains
+        if ttl:
+            data['ttl'] = ttl
+        if max_ttl:
+            data['max_ttl'] = max_ttl
+        if allowed_extensions:
+            data['allowed_extensions'] = allowed_extensions
+        if default_extensions:
+            data['default_extensions'] = default_extensions
+        if allowed_critical_options:
+            data['allowed_critical_options'] = allowed_critical_options
+        if algorithm_signer:
+            data['algorithm_signer'] = algorithm_signer
+        data['allow_user_certificates'] = allow_user_certificates
+        data['allow_host_certificates'] = allow_host_certificates
+        data['allow_bare_domains'] = allow_bare_domains
+        data['allow_subdomains'] = allow_subdomains
+        data['allow_user_key_ids'] = allow_user_key_ids
+        data.update(kwargs)
+        return self.api_write(f"{mount}/roles/{role_name}", data)
+    
+    def ssh_delete_role(self, mount: str, role_name: str) -> APIResponse:
+        """Delete an SSH role."""
+        return self.api_delete(f"{mount}/roles/{role_name}")
+    
+    def ssh_sign_key(self, mount: str, role_name: str, public_key: str,
+                     valid_principals: str = None, cert_type: str = "user",
+                     ttl: str = None, extensions: Dict = None,
+                     critical_options: Dict = None) -> APIResponse:
+        """Sign an SSH public key."""
+        data = {'public_key': public_key, 'cert_type': cert_type}
+        if valid_principals:
+            data['valid_principals'] = valid_principals
+        if ttl:
+            data['ttl'] = ttl
+        if extensions:
+            data['extensions'] = extensions
+        if critical_options:
+            data['critical_options'] = critical_options
+        return self.api_write(f"{mount}/sign/{role_name}", data)
+    
+    def ssh_issue_credential(self, mount: str, role_name: str, 
+                             cert_type: str = "user",
+                             valid_principals: str = None,
+                             key_type: str = "rsa",
+                             key_bits: int = 0,
+                             ttl: str = None,
+                             extensions: Dict = None,
+                             critical_options: Dict = None) -> APIResponse:
+        """Issue an SSH credential (key pair + signed certificate)."""
+        data = {'cert_type': cert_type, 'key_type': key_type}
+        if valid_principals:
+            data['valid_principals'] = valid_principals
+        if key_bits:
+            data['key_bits'] = key_bits
+        if ttl:
+            data['ttl'] = ttl
+        if extensions:
+            data['extensions'] = extensions
+        if critical_options:
+            data['critical_options'] = critical_options
+        return self.api_write(f"{mount}/issue/{role_name}", data)
+    
+    # ==================== Extended System Endpoints ====================
+    
+    def sys_capabilities(self, token: str, paths: List[str]) -> APIResponse:
+        """Check capabilities of a token on paths."""
+        return self.api_write("sys/capabilities", {'token': token, 'paths': paths})
+    
+    def sys_capabilities_self(self, paths: List[str]) -> APIResponse:
+        """Check capabilities of the current token on paths."""
+        return self.api_write("sys/capabilities-self", {'paths': paths})
+    
+    def sys_internal_counters_activity(self) -> APIResponse:
+        """Get client activity data."""
+        return self.api_read("sys/internal/counters/activity")
+    
+    def sys_internal_counters_tokens(self) -> APIResponse:
+        """Get token count data."""
+        return self.api_read("sys/internal/counters/tokens")
+    
+    def sys_internal_counters_entities(self) -> APIResponse:
+        """Get entity count data."""
+        return self.api_read("sys/internal/counters/entities")
+    
+    def sys_host_info(self) -> APIResponse:
+        """Get host information."""
+        return self.api_read("sys/host-info")
+    
+    def sys_in_flight_req(self) -> APIResponse:
+        """Get in-flight request information."""
+        return self.api_read("sys/in-flight-req")
+    
+    def sys_init_status(self) -> APIResponse:
+        """Get initialization status."""
+        return self.api_read("sys/init")
+    
+    def sys_key_status(self) -> APIResponse:
+        """Get encryption key status."""
+        return self.api_read("sys/key-status")
+    
+    def sys_generate_root_status(self) -> APIResponse:
+        """Get root token generation status."""
+        return self.api_read("sys/generate-root/attempt")
+    
+    def sys_generate_root_init(self, otp: str = None, pgp_key: str = None) -> APIResponse:
+        """Initialize root token generation."""
+        data = {}
+        if otp:
+            data['otp'] = otp
+        if pgp_key:
+            data['pgp_key'] = pgp_key
+        return self.api_write("sys/generate-root/attempt", data)
+    
+    def sys_generate_root_cancel(self) -> APIResponse:
+        """Cancel root token generation."""
+        return self.api_delete("sys/generate-root/attempt")
+    
+    def sys_generate_root_update(self, key: str, nonce: str) -> APIResponse:
+        """Provide unseal key for root generation."""
+        return self.api_write("sys/generate-root/update", {'key': key, 'nonce': nonce})
+    
+    def sys_rekey_init_status(self) -> APIResponse:
+        """Get rekey initialization status."""
+        return self.api_read("sys/rekey/init")
+    
+    def sys_rekey_init(self, secret_shares: int, secret_threshold: int,
+                       pgp_keys: List[str] = None, backup: bool = False) -> APIResponse:
+        """Initialize rekey operation."""
+        data = {'secret_shares': secret_shares, 'secret_threshold': secret_threshold, 'backup': backup}
+        if pgp_keys:
+            data['pgp_keys'] = pgp_keys
+        return self.api_write("sys/rekey/init", data)
+    
+    def sys_rekey_cancel(self) -> APIResponse:
+        """Cancel rekey operation."""
+        return self.api_delete("sys/rekey/init")
+    
+    def sys_rekey_update(self, key: str, nonce: str) -> APIResponse:
+        """Provide unseal key for rekey operation."""
+        return self.api_write("sys/rekey/update", {'key': key, 'nonce': nonce})
+    
+    def sys_rekey_verify_status(self) -> APIResponse:
+        """Get rekey verification status."""
+        return self.api_read("sys/rekey/verify")
+    
+    def sys_rekey_verify(self, key: str, nonce: str) -> APIResponse:
+        """Provide new key for rekey verification."""
+        return self.api_write("sys/rekey/verify", {'key': key, 'nonce': nonce})
+    
+    def sys_rekey_verify_cancel(self) -> APIResponse:
+        """Cancel rekey verification."""
+        return self.api_delete("sys/rekey/verify")
+    
+    def sys_rotate(self) -> APIResponse:
+        """Rotate the encryption key."""
+        return self.api_write("sys/rotate")
+    
+    def sys_seal(self) -> APIResponse:
+        """Seal the vault."""
+        return self.api_write("sys/seal")
+    
+    def sys_unseal(self, key: str = None, reset: bool = False, migrate: bool = False) -> APIResponse:
+        """Unseal the vault."""
+        data = {}
+        if key:
+            data['key'] = key
+        if reset:
+            data['reset'] = reset
+        if migrate:
+            data['migrate'] = migrate
+        return self.api_write("sys/unseal", data)
+    
+    def sys_step_down(self) -> APIResponse:
+        """Force the active node to step down."""
+        return self.api_write("sys/step-down")
+    
+    def sys_ha_status(self) -> APIResponse:
+        """Get HA status."""
+        return self.api_read("sys/ha-status")
+    
+    def sys_replication_status(self) -> APIResponse:
+        """Get replication status."""
+        return self.api_read("sys/replication/status")
+    
+    def sys_storage_raft_config(self) -> APIResponse:
+        """Get Raft storage configuration."""
+        return self.api_read("sys/storage/raft/configuration")
+    
+    def sys_storage_raft_autopilot_state(self) -> APIResponse:
+        """Get Raft autopilot state."""
+        return self.api_read("sys/storage/raft/autopilot/state")
+    
+    def sys_storage_raft_autopilot_config(self) -> APIResponse:
+        """Get Raft autopilot configuration."""
+        return self.api_read("sys/storage/raft/autopilot/configuration")
+    
+    def sys_storage_raft_snapshot(self) -> APIResponse:
+        """Take a Raft snapshot (returns binary)."""
+        return self.api_read("sys/storage/raft/snapshot")
+    
+    def sys_storage_raft_remove_peer(self, server_id: str) -> APIResponse:
+        """Remove a peer from Raft cluster."""
+        return self.api_write("sys/storage/raft/remove-peer", {'server_id': server_id})
+    
+    def sys_plugins_catalog_list(self, plugin_type: str = None) -> APIResponse:
+        """List all plugins or plugins of a specific type."""
+        if plugin_type:
+            return self.api_list(f"sys/plugins/catalog/{plugin_type}")
+        return self.api_read("sys/plugins/catalog")
+    
+    def sys_plugins_catalog_read(self, plugin_type: str, name: str) -> APIResponse:
+        """Read a plugin from the catalog."""
+        return self.api_read(f"sys/plugins/catalog/{plugin_type}/{name}")
+    
+    def sys_plugins_reload(self, plugin: str = None, mounts: List[str] = None) -> APIResponse:
+        """Reload a plugin or mounts."""
+        data = {}
+        if plugin:
+            data['plugin'] = plugin
+        if mounts:
+            data['mounts'] = mounts
+        return self.api_write("sys/plugins/reload/backend", data)
+    
+    def sys_tools_random(self, bytes_count: int = 32, format: str = "base64") -> APIResponse:
+        """Generate random bytes."""
+        return self.api_write(f"sys/tools/random/{bytes_count}", {'format': format})
+    
+    def sys_tools_hash(self, input_data: str, algorithm: str = "sha2-256",
+                       format: str = "hex") -> APIResponse:
+        """Hash data."""
+        return self.api_write(f"sys/tools/hash/{algorithm}", {'input': input_data, 'format': format})
+    
+    def sys_config_auditing_request_headers(self) -> APIResponse:
+        """List audited request headers."""
+        return self.api_read("sys/config/auditing/request-headers")
+    
+    def sys_config_cors(self) -> APIResponse:
+        """Read CORS configuration."""
+        return self.api_read("sys/config/cors")
+    
+    def sys_config_cors_configure(self, enabled: bool, allowed_origins: List[str] = None,
+                                  allowed_headers: List[str] = None) -> APIResponse:
+        """Configure CORS."""
+        data = {'enabled': enabled}
+        if allowed_origins:
+            data['allowed_origins'] = allowed_origins
+        if allowed_headers:
+            data['allowed_headers'] = allowed_headers
+        return self.api_write("sys/config/cors", data)
+    
+    def sys_config_ui_headers(self) -> APIResponse:
+        """List custom UI headers."""
+        return self.api_list("sys/config/ui/headers")
+    
+    def sys_config_state_sanitized(self) -> APIResponse:
+        """Get sanitized configuration state."""
+        return self.api_read("sys/config/state/sanitized")
+    
+    def sys_internal_ui_mounts(self) -> APIResponse:
+        """Get UI-visible mounts."""
+        return self.api_read("sys/internal/ui/mounts")
+    
+    def sys_internal_ui_namespaces(self) -> APIResponse:
+        """Get UI-visible namespaces."""
+        return self.api_read("sys/internal/ui/namespaces")
+    
+    def sys_internal_specs_openapi(self) -> APIResponse:
+        """Get OpenAPI spec."""
+        return self.api_read("sys/internal/specs/openapi")
+    
+    def sys_metrics(self, format: str = "prometheus") -> APIResponse:
+        """Get metrics."""
+        return self.api_read(f"sys/metrics?format={format}")
+    
+    def sys_monitor(self, log_level: str = "info") -> APIResponse:
+        """Stream logs (returns log data)."""
+        return self.api_read(f"sys/monitor?log_level={log_level}")
+    
+    def sys_pprof_index(self) -> APIResponse:
+        """Get pprof index."""
+        return self.api_read("sys/pprof")
+    
+    def sys_quotas_rate_limit_list(self) -> APIResponse:
+        """List rate limit quotas."""
+        return self.api_list("sys/quotas/rate-limit")
+    
+    def sys_quotas_rate_limit_read(self, name: str) -> APIResponse:
+        """Read a rate limit quota."""
+        return self.api_read(f"sys/quotas/rate-limit/{name}")
+    
+    def sys_quotas_rate_limit_create(self, name: str, rate: float, 
+                                      path: str = None, interval: str = None,
+                                      block_interval: str = None) -> APIResponse:
+        """Create or update a rate limit quota."""
+        data = {'name': name, 'rate': rate}
+        if path:
+            data['path'] = path
+        if interval:
+            data['interval'] = interval
+        if block_interval:
+            data['block_interval'] = block_interval
+        return self.api_write(f"sys/quotas/rate-limit/{name}", data)
+    
+    def sys_quotas_rate_limit_delete(self, name: str) -> APIResponse:
+        """Delete a rate limit quota."""
+        return self.api_delete(f"sys/quotas/rate-limit/{name}")
+    
+    def sys_quotas_lease_count_list(self) -> APIResponse:
+        """List lease count quotas."""
+        return self.api_list("sys/quotas/lease-count")
+    
+    def sys_quotas_lease_count_read(self, name: str) -> APIResponse:
+        """Read a lease count quota."""
+        return self.api_read(f"sys/quotas/lease-count/{name}")
+    
+    def sys_license(self) -> APIResponse:
+        """Read license info (Enterprise only)."""
+        return self.api_read("sys/license/status")
+    
+    def sys_mfa_method_list(self) -> APIResponse:
+        """List MFA methods."""
+        return self.api_list("sys/mfa/method")
+    
+    def sys_raw_read(self, path: str) -> APIResponse:
+        """Read raw storage (requires root)."""
+        return self.api_read(f"sys/raw/{path}")
+    
+    def sys_raw_list(self, path: str = "") -> APIResponse:
+        """List raw storage (requires root)."""
+        return self.api_list(f"sys/raw/{path}")
+    
+    def sys_remount(self, from_path: str, to_path: str) -> APIResponse:
+        """Remount a secrets engine."""
+        return self.api_write("sys/remount", {'from': from_path, 'to': to_path})
+    
+    def sys_remount_status(self, migration_id: str) -> APIResponse:
+        """Get remount status."""
+        return self.api_read(f"sys/remount/status/{migration_id}")

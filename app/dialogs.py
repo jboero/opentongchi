@@ -878,6 +878,9 @@ class SettingsDialog(QDialog):
         # Packer tab
         self._create_packer_tab()
         
+        # HCP tab
+        self._create_hcp_tab()
+        
         # Buttons
         button_layout = QHBoxLayout()
         button_layout.addStretch()
@@ -1031,13 +1034,6 @@ class SettingsDialog(QDialog):
         self.tofu_binary.setPlaceholderText("tofu or terraform")
         layout.addRow("⚙️ Binary Path:", self.tofu_binary)
         
-        self.hcp_token = QLineEdit()
-        self.hcp_token.setEchoMode(QLineEdit.EchoMode.Password)
-        layout.addRow("🔑 HCP Token:", self.hcp_token)
-        
-        self.hcp_org = QLineEdit()
-        layout.addRow("🏢 HCP Organization:", self.hcp_org)
-        
         self.tabs.addTab(widget, "🏗️ OpenTofu")
     
     def _create_consul_tab(self):
@@ -1155,6 +1151,64 @@ class SettingsDialog(QDialog):
         
         self.tabs.addTab(widget, "📦 Packer")
     
+    def _create_hcp_tab(self):
+        """Create the HCP (HashiCorp Cloud Platform) settings tab."""
+        widget = QWidget()
+        layout = QFormLayout(widget)
+        
+        # Cloud API credentials (OAuth2 service principal)
+        cloud_label = QLabel("<b>☁️ HCP Cloud API (OAuth2 Service Principal)</b>")
+        layout.addRow(cloud_label)
+        
+        self.hcp_client_id = QLineEdit()
+        self.hcp_client_id.setEchoMode(QLineEdit.EchoMode.Password)
+        self.hcp_client_id.setPlaceholderText("Service principal client ID")
+        layout.addRow("🔑 Client ID:", self.hcp_client_id)
+        
+        self.hcp_client_secret = QLineEdit()
+        self.hcp_client_secret.setEchoMode(QLineEdit.EchoMode.Password)
+        self.hcp_client_secret.setPlaceholderText("Service principal client secret")
+        layout.addRow("🔐 Client Secret:", self.hcp_client_secret)
+        
+        self.hcp_organization_id = QLineEdit()
+        self.hcp_organization_id.setPlaceholderText("HCP organization UUID")
+        layout.addRow("🏢 Organization ID:", self.hcp_organization_id)
+
+        self.hcp_project_id = QLineEdit()
+        self.hcp_project_id.setPlaceholderText("HCP project UUID")
+        layout.addRow("📂 Project ID:", self.hcp_project_id)
+
+        # Endpoint URLs
+        endpoint_label = QLabel("<b>🌐 Endpoint URLs</b>")
+        layout.addRow(endpoint_label)
+
+        self.hcp_api_url = QLineEdit()
+        self.hcp_api_url.setPlaceholderText("https://api.cloud.hashicorp.com")
+        layout.addRow("🔗 HCP API URL:", self.hcp_api_url)
+
+        self.hcp_auth_url = QLineEdit()
+        self.hcp_auth_url.setPlaceholderText("https://auth.idp.hashicorp.com")
+        layout.addRow("🔗 HCP Auth URL:", self.hcp_auth_url)
+
+        # Separator
+        sep_label = QLabel("<b>🏗️ HCP Terraform</b>")
+        layout.addRow(sep_label)
+
+        self.hcp_terraform_url = QLineEdit()
+        self.hcp_terraform_url.setPlaceholderText("https://app.terraform.io")
+        layout.addRow("🔗 TFE URL:", self.hcp_terraform_url)
+
+        self.hcp_terraform_token = QLineEdit()
+        self.hcp_terraform_token.setEchoMode(QLineEdit.EchoMode.Password)
+        self.hcp_terraform_token.setPlaceholderText("TFE/TFC bearer token")
+        layout.addRow("🔑 TFE Token:", self.hcp_terraform_token)
+
+        self.hcp_terraform_org = QLineEdit()
+        self.hcp_terraform_org.setPlaceholderText("Default organization name")
+        layout.addRow("🏢 TF Organization:", self.hcp_terraform_org)
+        
+        self.tabs.addTab(widget, "☁️ HCP")
+    
     def _load_settings(self):
         """Load current settings into the form."""
         # Global
@@ -1180,8 +1234,17 @@ class SettingsDialog(QDialog):
         # OpenTofu
         self.tofu_home.setText(self.settings.opentofu.home_dir)
         self.tofu_binary.setText(self.settings.opentofu.binary_path)
-        self.hcp_token.setText(self.settings.opentofu.hcp_token)
-        self.hcp_org.setText(self.settings.opentofu.hcp_org)
+        
+        # HCP
+        self.hcp_client_id.setText(self.settings.hcp.client_id)
+        self.hcp_client_secret.setText(self.settings.hcp.client_secret)
+        self.hcp_organization_id.setText(self.settings.hcp.organization_id)
+        self.hcp_project_id.setText(self.settings.hcp.project_id)
+        self.hcp_api_url.setText(self.settings.hcp.hcp_api_url)
+        self.hcp_auth_url.setText(self.settings.hcp.hcp_auth_url)
+        self.hcp_terraform_url.setText(self.settings.hcp.hcp_terraform_url)
+        self.hcp_terraform_token.setText(self.settings.hcp.hcp_terraform_token)
+        self.hcp_terraform_org.setText(self.settings.hcp.hcp_terraform_org)
         
         # Consul
         self.consul_address.setText(self.settings.consul.address)
@@ -1233,8 +1296,17 @@ class SettingsDialog(QDialog):
         # OpenTofu
         self.settings.opentofu.home_dir = self.tofu_home.text()
         self.settings.opentofu.binary_path = self.tofu_binary.text()
-        self.settings.opentofu.hcp_token = self.hcp_token.text()
-        self.settings.opentofu.hcp_org = self.hcp_org.text()
+        
+        # HCP
+        self.settings.hcp.client_id = self.hcp_client_id.text()
+        self.settings.hcp.client_secret = self.hcp_client_secret.text()
+        self.settings.hcp.organization_id = self.hcp_organization_id.text()
+        self.settings.hcp.project_id = self.hcp_project_id.text()
+        self.settings.hcp.hcp_api_url = self.hcp_api_url.text() or "https://api.cloud.hashicorp.com"
+        self.settings.hcp.hcp_auth_url = self.hcp_auth_url.text() or "https://auth.idp.hashicorp.com"
+        self.settings.hcp.hcp_terraform_url = self.hcp_terraform_url.text() or "https://app.terraform.io"
+        self.settings.hcp.hcp_terraform_token = self.hcp_terraform_token.text()
+        self.settings.hcp.hcp_terraform_org = self.hcp_terraform_org.text()
         
         # Consul
         self.settings.consul.address = self.consul_address.text()
@@ -2103,3 +2175,1234 @@ CONSUL_SERVICE_TEMPLATES = {
   }
 }'''
 }
+
+
+# ==================== Enable Secrets Engine Dialog ====================
+
+# Known secret engine types with descriptions
+SECRET_ENGINE_TYPES = {
+    'kv': {
+        'name': 'KV (Key-Value)',
+        'description': 'Versioned or unversioned key-value store',
+        'options': ['version'],  # 1 or 2
+    },
+    'transit': {
+        'name': 'Transit',
+        'description': 'Encryption as a service - encrypt/decrypt/sign data',
+        'options': [],
+    },
+    'pki': {
+        'name': 'PKI',
+        'description': 'Public Key Infrastructure - issue X.509 certificates',
+        'options': [],
+    },
+    'database': {
+        'name': 'Database',
+        'description': 'Dynamic database credentials',
+        'options': [],
+    },
+    'aws': {
+        'name': 'AWS',
+        'description': 'Dynamic AWS IAM credentials',
+        'options': [],
+    },
+    'ssh': {
+        'name': 'SSH',
+        'description': 'SSH key signing and OTP credentials',
+        'options': [],
+    },
+    'totp': {
+        'name': 'TOTP',
+        'description': 'Time-based one-time passwords',
+        'options': [],
+    },
+    'rabbitmq': {
+        'name': 'RabbitMQ',
+        'description': 'Dynamic RabbitMQ credentials',
+        'options': [],
+    },
+    'ldap': {
+        'name': 'LDAP',
+        'description': 'Dynamic LDAP credentials',
+        'options': [],
+    },
+    'consul': {
+        'name': 'Consul',
+        'description': 'Dynamic Consul ACL tokens',
+        'options': [],
+    },
+    'nomad': {
+        'name': 'Nomad',
+        'description': 'Dynamic Nomad ACL tokens',
+        'options': [],
+    },
+    'terraform': {
+        'name': 'Terraform Cloud',
+        'description': 'Dynamic Terraform Cloud tokens',
+        'options': [],
+    },
+    'gcp': {
+        'name': 'Google Cloud',
+        'description': 'Dynamic GCP credentials',
+        'options': [],
+    },
+    'azure': {
+        'name': 'Azure',
+        'description': 'Dynamic Azure credentials',
+        'options': [],
+    },
+    'kubernetes': {
+        'name': 'Kubernetes',
+        'description': 'Dynamic Kubernetes service account tokens',
+        'options': [],
+    },
+    'mongodbatlas': {
+        'name': 'MongoDB Atlas',
+        'description': 'Dynamic MongoDB Atlas credentials',
+        'options': [],
+    },
+    'openldap': {
+        'name': 'OpenLDAP',
+        'description': 'Dynamic OpenLDAP credentials',
+        'options': [],
+    },
+    'transform': {
+        'name': 'Transform',
+        'description': 'Data transformation and tokenization',
+        'options': [],
+    },
+    'kmip': {
+        'name': 'KMIP',
+        'description': 'Key Management Interoperability Protocol server',
+        'options': [],
+    },
+}
+
+
+class EnableEngineDialog(QDialog):
+    """Dialog for enabling a secrets engine with configuration."""
+    
+    saved = Signal(str, str, dict)  # path, type, config
+    
+    def __init__(self, available_plugins: List[str] = None, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Enable Secrets Engine")
+        self.setMinimumSize(500, 400)
+        self.available_plugins = available_plugins or []
+        self._setup_ui()
+    
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        
+        form = QFormLayout()
+        
+        # Engine type selection
+        self.engine_combo = QComboBox()
+        for key, info in SECRET_ENGINE_TYPES.items():
+            self.engine_combo.addItem(f"{info['name']} ({key})", key)
+        
+        # Add any additional plugins from the server
+        for plugin in self.available_plugins:
+            if plugin not in SECRET_ENGINE_TYPES:
+                self.engine_combo.addItem(f"{plugin} (plugin)", plugin)
+        
+        self.engine_combo.currentIndexChanged.connect(self._on_engine_changed)
+        form.addRow("Engine Type:", self.engine_combo)
+        
+        # Description label
+        self.description_label = QLabel()
+        self.description_label.setWordWrap(True)
+        self.description_label.setStyleSheet("color: gray; font-style: italic;")
+        form.addRow("", self.description_label)
+        
+        # Mount path
+        self.path_edit = QLineEdit()
+        self.path_edit.setPlaceholderText("e.g., secret, aws-prod, pki-internal")
+        form.addRow("Mount Path:", self.path_edit)
+        
+        # Description (optional)
+        self.desc_edit = QLineEdit()
+        self.desc_edit.setPlaceholderText("Optional description")
+        form.addRow("Description:", self.desc_edit)
+        
+        layout.addLayout(form)
+        
+        # Configuration group
+        config_group = QGroupBox("Configuration")
+        config_layout = QFormLayout(config_group)
+        
+        # Default lease TTL
+        self.default_ttl = QLineEdit()
+        self.default_ttl.setPlaceholderText("e.g., 1h, 24h, 768h (leave empty for default)")
+        config_layout.addRow("Default Lease TTL:", self.default_ttl)
+        
+        # Max lease TTL
+        self.max_ttl = QLineEdit()
+        self.max_ttl.setPlaceholderText("e.g., 24h, 768h, 87600h (leave empty for default)")
+        config_layout.addRow("Max Lease TTL:", self.max_ttl)
+        
+        # KV version (shown only for KV)
+        self.kv_version_group = QWidget()
+        kv_layout = QHBoxLayout(self.kv_version_group)
+        kv_layout.setContentsMargins(0, 0, 0, 0)
+        self.kv_v1 = QCheckBox("Version 1")
+        self.kv_v2 = QCheckBox("Version 2")
+        self.kv_v2.setChecked(True)
+        self.kv_v1.toggled.connect(lambda c: self.kv_v2.setChecked(not c) if c else None)
+        self.kv_v2.toggled.connect(lambda c: self.kv_v1.setChecked(not c) if c else None)
+        kv_layout.addWidget(self.kv_v1)
+        kv_layout.addWidget(self.kv_v2)
+        kv_layout.addStretch()
+        config_layout.addRow("KV Version:", self.kv_version_group)
+        
+        # Local mount
+        self.local_mount = QCheckBox("Local mount (not replicated)")
+        config_layout.addRow("", self.local_mount)
+        
+        # Seal wrap
+        self.seal_wrap = QCheckBox("Seal wrap (Enterprise)")
+        config_layout.addRow("", self.seal_wrap)
+        
+        layout.addWidget(config_group)
+        
+        layout.addStretch()
+        
+        # Buttons
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        
+        enable_btn = QPushButton("✅ Enable")
+        enable_btn.clicked.connect(self._enable)
+        button_layout.addWidget(enable_btn)
+        
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(cancel_btn)
+        
+        layout.addLayout(button_layout)
+        
+        # Initialize
+        self._on_engine_changed()
+    
+    def _on_engine_changed(self):
+        """Update UI based on selected engine."""
+        engine_type = self.engine_combo.currentData()
+        
+        # Update description
+        if engine_type in SECRET_ENGINE_TYPES:
+            info = SECRET_ENGINE_TYPES[engine_type]
+            self.description_label.setText(info['description'])
+        else:
+            self.description_label.setText("Custom plugin")
+        
+        # Update path placeholder
+        self.path_edit.setPlaceholderText(engine_type or "mount-path")
+        if not self.path_edit.text():
+            self.path_edit.setText(engine_type or "")
+        
+        # Show/hide KV version selector
+        self.kv_version_group.setVisible(engine_type == 'kv')
+    
+    def _enable(self):
+        """Enable the secrets engine."""
+        path = self.path_edit.text().strip()
+        if not path:
+            QMessageBox.warning(self, "Error", "Mount path is required")
+            return
+        
+        engine_type = self.engine_combo.currentData()
+        
+        config = {}
+        
+        if self.desc_edit.text().strip():
+            config['description'] = self.desc_edit.text().strip()
+        
+        if self.default_ttl.text().strip():
+            config['default_lease_ttl'] = self.default_ttl.text().strip()
+        
+        if self.max_ttl.text().strip():
+            config['max_lease_ttl'] = self.max_ttl.text().strip()
+        
+        if self.local_mount.isChecked():
+            config['local'] = True
+        
+        if self.seal_wrap.isChecked():
+            config['seal_wrap'] = True
+        
+        # KV version option
+        if engine_type == 'kv':
+            config['options'] = {'version': '1' if self.kv_v1.isChecked() else '2'}
+        
+        self.saved.emit(path, engine_type, config)
+        self.accept()
+
+
+class DatabaseConnectionDialog(QDialog):
+    """Dialog for creating/editing database connections."""
+    
+    saved = Signal(str, dict)  # name, config
+    
+    # Database plugin types
+    DB_PLUGINS = {
+        'postgresql-database-plugin': 'PostgreSQL',
+        'mysql-database-plugin': 'MySQL',
+        'mysql-aurora-database-plugin': 'MySQL Aurora',
+        'mysql-rds-database-plugin': 'MySQL RDS',
+        'mysql-legacy-database-plugin': 'MySQL (Legacy)',
+        'mssql-database-plugin': 'Microsoft SQL Server',
+        'oracle-database-plugin': 'Oracle',
+        'mongodb-database-plugin': 'MongoDB',
+        'mongodbatlas-database-plugin': 'MongoDB Atlas',
+        'elasticsearch-database-plugin': 'Elasticsearch',
+        'snowflake-database-plugin': 'Snowflake',
+        'redshift-database-plugin': 'Redshift',
+        'cassandra-database-plugin': 'Cassandra',
+        'couchbase-database-plugin': 'Couchbase',
+        'influxdb-database-plugin': 'InfluxDB',
+        'hanadb-database-plugin': 'SAP HANA',
+    }
+    
+    def __init__(self, name: str = "", config: Dict = None, is_new: bool = True, parent=None):
+        super().__init__(parent)
+        self.name = name
+        self.config = config or {}
+        self.is_new = is_new
+        self.setWindowTitle("New Database Connection" if is_new else f"Edit Connection: {name}")
+        self.setMinimumSize(600, 500)
+        self._setup_ui()
+        self._load_config()
+    
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        
+        form = QFormLayout()
+        
+        # Connection name
+        self.name_edit = QLineEdit()
+        self.name_edit.setEnabled(self.is_new)
+        form.addRow("Connection Name:", self.name_edit)
+        
+        # Plugin type
+        self.plugin_combo = QComboBox()
+        for plugin, display in self.DB_PLUGINS.items():
+            self.plugin_combo.addItem(display, plugin)
+        self.plugin_combo.currentIndexChanged.connect(self._on_plugin_changed)
+        form.addRow("Database Type:", self.plugin_combo)
+        
+        layout.addLayout(form)
+        
+        # Connection details group
+        conn_group = QGroupBox("Connection Details")
+        conn_layout = QFormLayout(conn_group)
+        
+        self.conn_url = QLineEdit()
+        self.conn_url.setPlaceholderText("e.g., postgresql://{{username}}:{{password}}@host:5432/dbname")
+        conn_layout.addRow("Connection URL:", self.conn_url)
+        
+        self.username = QLineEdit()
+        self.username.setPlaceholderText("Root/admin username")
+        conn_layout.addRow("Username:", self.username)
+        
+        self.password = QLineEdit()
+        self.password.setEchoMode(QLineEdit.EchoMode.Password)
+        self.password.setPlaceholderText("Root/admin password")
+        conn_layout.addRow("Password:", self.password)
+        
+        layout.addWidget(conn_group)
+        
+        # Advanced options
+        adv_group = QGroupBox("Advanced Options")
+        adv_layout = QFormLayout(adv_group)
+        
+        self.max_open = QSpinBox()
+        self.max_open.setRange(0, 1000)
+        self.max_open.setValue(4)
+        self.max_open.setSpecialValueText("Default")
+        adv_layout.addRow("Max Open Connections:", self.max_open)
+        
+        self.max_idle = QSpinBox()
+        self.max_idle.setRange(0, 1000)
+        self.max_idle.setValue(0)
+        self.max_idle.setSpecialValueText("Default")
+        adv_layout.addRow("Max Idle Connections:", self.max_idle)
+        
+        self.max_lifetime = QLineEdit()
+        self.max_lifetime.setPlaceholderText("e.g., 0s (unlimited)")
+        adv_layout.addRow("Max Connection Lifetime:", self.max_lifetime)
+        
+        self.allowed_roles = QLineEdit()
+        self.allowed_roles.setPlaceholderText("* for all, or comma-separated role names")
+        adv_layout.addRow("Allowed Roles:", self.allowed_roles)
+        
+        self.verify_conn = QCheckBox("Verify connection on save")
+        self.verify_conn.setChecked(True)
+        adv_layout.addRow("", self.verify_conn)
+        
+        layout.addWidget(adv_group)
+        
+        layout.addStretch()
+        
+        # Buttons
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        
+        save_btn = QPushButton("💾 Save")
+        save_btn.clicked.connect(self._save)
+        button_layout.addWidget(save_btn)
+        
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(cancel_btn)
+        
+        layout.addLayout(button_layout)
+    
+    def _on_plugin_changed(self):
+        """Update placeholder based on plugin type."""
+        plugin = self.plugin_combo.currentData()
+        
+        placeholders = {
+            'postgresql-database-plugin': 'postgresql://{{username}}:{{password}}@host:5432/dbname',
+            'mysql-database-plugin': '{{username}}:{{password}}@tcp(host:3306)/dbname',
+            'mssql-database-plugin': 'sqlserver://{{username}}:{{password}}@host:1433',
+            'mongodb-database-plugin': 'mongodb://{{username}}:{{password}}@host:27017/admin',
+            'oracle-database-plugin': '{{username}}/{{password}}@host:1521/ORCL',
+        }
+        
+        self.conn_url.setPlaceholderText(
+            placeholders.get(plugin, 'Connection string with {{username}} and {{password}} placeholders')
+        )
+    
+    def _load_config(self):
+        """Load existing config into form."""
+        self.name_edit.setText(self.name)
+        
+        if 'plugin_name' in self.config:
+            idx = self.plugin_combo.findData(self.config['plugin_name'])
+            if idx >= 0:
+                self.plugin_combo.setCurrentIndex(idx)
+        
+        self.conn_url.setText(self.config.get('connection_url', ''))
+        self.username.setText(self.config.get('username', ''))
+        # Don't load password for security
+        
+        self.max_open.setValue(self.config.get('max_open_connections', 4))
+        self.max_idle.setValue(self.config.get('max_idle_connections', 0))
+        self.max_lifetime.setText(self.config.get('max_connection_lifetime', ''))
+        
+        allowed = self.config.get('allowed_roles', [])
+        if isinstance(allowed, list):
+            self.allowed_roles.setText(','.join(allowed))
+        else:
+            self.allowed_roles.setText(str(allowed))
+        
+        self.verify_conn.setChecked(self.config.get('verify_connection', True))
+    
+    def _save(self):
+        """Save the connection config."""
+        name = self.name_edit.text().strip()
+        if not name:
+            QMessageBox.warning(self, "Error", "Connection name is required")
+            return
+        
+        if not self.conn_url.text().strip():
+            QMessageBox.warning(self, "Error", "Connection URL is required")
+            return
+        
+        config = {
+            'plugin_name': self.plugin_combo.currentData(),
+            'connection_url': self.conn_url.text().strip(),
+            'verify_connection': self.verify_conn.isChecked(),
+        }
+        
+        if self.username.text().strip():
+            config['username'] = self.username.text().strip()
+        
+        if self.password.text():
+            config['password'] = self.password.text()
+        
+        if self.max_open.value() > 0:
+            config['max_open_connections'] = self.max_open.value()
+        
+        if self.max_idle.value() > 0:
+            config['max_idle_connections'] = self.max_idle.value()
+        
+        if self.max_lifetime.text().strip():
+            config['max_connection_lifetime'] = self.max_lifetime.text().strip()
+        
+        allowed = self.allowed_roles.text().strip()
+        if allowed:
+            config['allowed_roles'] = [r.strip() for r in allowed.split(',')]
+        
+        self.saved.emit(name, config)
+        self.accept()
+
+
+class DatabaseRoleDialog(QDialog):
+    """Dialog for creating/editing database roles."""
+    
+    saved = Signal(str, dict)  # name, config
+    
+    def __init__(self, name: str = "", config: Dict = None, connections: List[str] = None,
+                 is_static: bool = False, is_new: bool = True, parent=None):
+        super().__init__(parent)
+        self.name = name
+        self.config = config or {}
+        self.connections = connections or []
+        self.is_static = is_static
+        self.is_new = is_new
+        
+        title = "New Static Role" if is_static else "New Dynamic Role"
+        if not is_new:
+            title = f"Edit {'Static' if is_static else 'Dynamic'} Role: {name}"
+        self.setWindowTitle(title)
+        self.setMinimumSize(600, 500)
+        self._setup_ui()
+        self._load_config()
+    
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        
+        form = QFormLayout()
+        
+        # Role name
+        self.name_edit = QLineEdit()
+        self.name_edit.setEnabled(self.is_new)
+        form.addRow("Role Name:", self.name_edit)
+        
+        # Database connection
+        self.db_combo = QComboBox()
+        for conn in self.connections:
+            self.db_combo.addItem(conn)
+        form.addRow("Database Connection:", self.db_combo)
+        
+        layout.addLayout(form)
+        
+        if self.is_static:
+            # Static role specific
+            static_group = QGroupBox("Static Role Settings")
+            static_layout = QFormLayout(static_group)
+            
+            self.db_username = QLineEdit()
+            self.db_username.setPlaceholderText("Existing database username to manage")
+            static_layout.addRow("Database Username:", self.db_username)
+            
+            self.rotation_period = QLineEdit()
+            self.rotation_period.setPlaceholderText("e.g., 24h, 7d")
+            self.rotation_period.setText("24h")
+            static_layout.addRow("Rotation Period:", self.rotation_period)
+            
+            layout.addWidget(static_group)
+        else:
+            # Dynamic role specific
+            dynamic_group = QGroupBox("Dynamic Role Settings")
+            dynamic_layout = QFormLayout(dynamic_group)
+            
+            self.default_ttl = QLineEdit()
+            self.default_ttl.setPlaceholderText("e.g., 1h")
+            self.default_ttl.setText("1h")
+            dynamic_layout.addRow("Default TTL:", self.default_ttl)
+            
+            self.max_ttl = QLineEdit()
+            self.max_ttl.setPlaceholderText("e.g., 24h")
+            self.max_ttl.setText("24h")
+            dynamic_layout.addRow("Max TTL:", self.max_ttl)
+            
+            layout.addWidget(dynamic_group)
+        
+        # SQL statements
+        sql_group = QGroupBox("SQL Statements")
+        sql_layout = QVBoxLayout(sql_group)
+        
+        sql_layout.addWidget(QLabel("Creation Statements:"))
+        self.creation_sql = SyntaxHighlightedTextEdit(syntax=None)
+        self.creation_sql.setPlaceholderText(
+            "CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}';\n"
+            "GRANT SELECT ON ALL TABLES IN SCHEMA public TO \"{{name}}\";"
+        )
+        self.creation_sql.setMaximumHeight(120)
+        sql_layout.addWidget(self.creation_sql)
+        
+        if not self.is_static:
+            sql_layout.addWidget(QLabel("Revocation Statements:"))
+            self.revocation_sql = SyntaxHighlightedTextEdit(syntax=None)
+            self.revocation_sql.setPlaceholderText(
+                "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM \"{{name}}\";\n"
+                "DROP ROLE IF EXISTS \"{{name}}\";"
+            )
+            self.revocation_sql.setMaximumHeight(100)
+            sql_layout.addWidget(self.revocation_sql)
+            
+            sql_layout.addWidget(QLabel("Rollback Statements (optional):"))
+            self.rollback_sql = SyntaxHighlightedTextEdit(syntax=None)
+            self.rollback_sql.setPlaceholderText("Optional: statements to run if creation fails")
+            self.rollback_sql.setMaximumHeight(80)
+            sql_layout.addWidget(self.rollback_sql)
+        
+        layout.addWidget(sql_group)
+        
+        # Buttons
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        
+        save_btn = QPushButton("💾 Save")
+        save_btn.clicked.connect(self._save)
+        button_layout.addWidget(save_btn)
+        
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(cancel_btn)
+        
+        layout.addLayout(button_layout)
+    
+    def _load_config(self):
+        """Load existing config."""
+        self.name_edit.setText(self.name)
+        
+        db_name = self.config.get('db_name', '')
+        idx = self.db_combo.findText(db_name)
+        if idx >= 0:
+            self.db_combo.setCurrentIndex(idx)
+        
+        if self.is_static:
+            self.db_username.setText(self.config.get('username', ''))
+            self.rotation_period.setText(self.config.get('rotation_period', '24h'))
+        else:
+            self.default_ttl.setText(self.config.get('default_ttl', '1h'))
+            self.max_ttl.setText(self.config.get('max_ttl', '24h'))
+        
+        creation = self.config.get('creation_statements', [])
+        if isinstance(creation, list):
+            self.creation_sql.setPlainText('\n'.join(creation))
+        else:
+            self.creation_sql.setPlainText(str(creation))
+        
+        if not self.is_static:
+            revocation = self.config.get('revocation_statements', [])
+            if isinstance(revocation, list):
+                self.revocation_sql.setPlainText('\n'.join(revocation))
+            else:
+                self.revocation_sql.setPlainText(str(revocation))
+            
+            rollback = self.config.get('rollback_statements', [])
+            if isinstance(rollback, list):
+                self.rollback_sql.setPlainText('\n'.join(rollback))
+            else:
+                self.rollback_sql.setPlainText(str(rollback))
+    
+    def _save(self):
+        """Save the role."""
+        name = self.name_edit.text().strip()
+        if not name:
+            QMessageBox.warning(self, "Error", "Role name is required")
+            return
+        
+        if not self.db_combo.currentText():
+            QMessageBox.warning(self, "Error", "Database connection is required")
+            return
+        
+        creation = self.creation_sql.toPlainText().strip()
+        if not creation:
+            QMessageBox.warning(self, "Error", "Creation statements are required")
+            return
+        
+        config = {
+            'db_name': self.db_combo.currentText(),
+            'creation_statements': [creation],
+        }
+        
+        if self.is_static:
+            if not self.db_username.text().strip():
+                QMessageBox.warning(self, "Error", "Database username is required for static roles")
+                return
+            config['username'] = self.db_username.text().strip()
+            config['rotation_period'] = self.rotation_period.text().strip() or '24h'
+        else:
+            config['default_ttl'] = self.default_ttl.text().strip() or '1h'
+            config['max_ttl'] = self.max_ttl.text().strip() or '24h'
+            
+            revocation = self.revocation_sql.toPlainText().strip()
+            if revocation:
+                config['revocation_statements'] = [revocation]
+            
+            rollback = self.rollback_sql.toPlainText().strip()
+            if rollback:
+                config['rollback_statements'] = [rollback]
+        
+        self.saved.emit(name, config)
+        self.accept()
+
+
+class SSHRoleDialog(QDialog):
+    """Dialog for creating/editing SSH roles."""
+    
+    saved = Signal(str, dict)  # name, config
+    
+    def __init__(self, name: str = "", config: Dict = None, is_new: bool = True, parent=None):
+        super().__init__(parent)
+        self.name = name
+        self.config = config or {}
+        self.is_new = is_new
+        self.setWindowTitle("New SSH Role" if is_new else f"Edit SSH Role: {name}")
+        self.setMinimumSize(600, 550)
+        self._setup_ui()
+        self._load_config()
+    
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        
+        form = QFormLayout()
+        
+        # Role name
+        self.name_edit = QLineEdit()
+        self.name_edit.setEnabled(self.is_new)
+        form.addRow("Role Name:", self.name_edit)
+        
+        # Key type
+        self.key_type = QComboBox()
+        self.key_type.addItems(['ca', 'otp', 'dynamic'])
+        self.key_type.currentTextChanged.connect(self._on_key_type_changed)
+        form.addRow("Key Type:", self.key_type)
+        
+        layout.addLayout(form)
+        
+        # CA signing options (for 'ca' type)
+        self.ca_group = QGroupBox("CA Certificate Options")
+        ca_layout = QFormLayout(self.ca_group)
+        
+        self.default_user = QLineEdit()
+        self.default_user.setPlaceholderText("e.g., ubuntu, ec2-user")
+        ca_layout.addRow("Default Username:", self.default_user)
+        
+        self.allowed_users = QLineEdit()
+        self.allowed_users.setPlaceholderText("Comma-separated list, or * for any")
+        ca_layout.addRow("Allowed Users:", self.allowed_users)
+        
+        self.allowed_domains = QLineEdit()
+        self.allowed_domains.setPlaceholderText("Comma-separated domains, or * for any")
+        ca_layout.addRow("Allowed Domains:", self.allowed_domains)
+        
+        self.ttl = QLineEdit()
+        self.ttl.setPlaceholderText("e.g., 30m, 1h")
+        self.ttl.setText("30m")
+        ca_layout.addRow("TTL:", self.ttl)
+        
+        self.max_ttl = QLineEdit()
+        self.max_ttl.setPlaceholderText("e.g., 24h")
+        self.max_ttl.setText("24h")
+        ca_layout.addRow("Max TTL:", self.max_ttl)
+        
+        self.allow_user_certs = QCheckBox("Allow user certificates")
+        self.allow_user_certs.setChecked(True)
+        ca_layout.addRow("", self.allow_user_certs)
+        
+        self.allow_host_certs = QCheckBox("Allow host certificates")
+        ca_layout.addRow("", self.allow_host_certs)
+        
+        layout.addWidget(self.ca_group)
+        
+        # OTP options (for 'otp' type)
+        self.otp_group = QGroupBox("OTP Options")
+        otp_layout = QFormLayout(self.otp_group)
+        
+        self.otp_default_user = QLineEdit()
+        self.otp_default_user.setPlaceholderText("e.g., root")
+        otp_layout.addRow("Default Username:", self.otp_default_user)
+        
+        self.cidr_list = QLineEdit()
+        self.cidr_list.setPlaceholderText("e.g., 10.0.0.0/8, 192.168.0.0/16")
+        otp_layout.addRow("CIDR List:", self.cidr_list)
+        
+        self.port = QSpinBox()
+        self.port.setRange(1, 65535)
+        self.port.setValue(22)
+        otp_layout.addRow("Port:", self.port)
+        
+        layout.addWidget(self.otp_group)
+        
+        # Key options
+        key_group = QGroupBox("Key Options")
+        key_layout = QFormLayout(key_group)
+        
+        self.algorithm_signer = QComboBox()
+        self.algorithm_signer.addItems(['', 'rsa-sha2-256', 'rsa-sha2-512', 'ssh-rsa'])
+        key_layout.addRow("Algorithm Signer:", self.algorithm_signer)
+        
+        self.allowed_extensions = QLineEdit()
+        self.allowed_extensions.setPlaceholderText("e.g., permit-pty,permit-port-forwarding")
+        key_layout.addRow("Allowed Extensions:", self.allowed_extensions)
+        
+        self.default_extensions = QLineEdit()
+        self.default_extensions.setPlaceholderText("Extensions to include by default")
+        key_layout.addRow("Default Extensions:", self.default_extensions)
+        
+        layout.addWidget(key_group)
+        
+        layout.addStretch()
+        
+        # Buttons
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        
+        save_btn = QPushButton("💾 Save")
+        save_btn.clicked.connect(self._save)
+        button_layout.addWidget(save_btn)
+        
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(cancel_btn)
+        
+        layout.addLayout(button_layout)
+        
+        self._on_key_type_changed()
+    
+    def _on_key_type_changed(self):
+        """Show/hide options based on key type."""
+        key_type = self.key_type.currentText()
+        self.ca_group.setVisible(key_type == 'ca')
+        self.otp_group.setVisible(key_type == 'otp')
+    
+    def _load_config(self):
+        """Load existing config."""
+        self.name_edit.setText(self.name)
+        
+        key_type = self.config.get('key_type', 'ca')
+        idx = self.key_type.findText(key_type)
+        if idx >= 0:
+            self.key_type.setCurrentIndex(idx)
+        
+        self.default_user.setText(self.config.get('default_user', ''))
+        self.allowed_users.setText(self.config.get('allowed_users', ''))
+        self.allowed_domains.setText(self.config.get('allowed_domains', ''))
+        self.ttl.setText(self.config.get('ttl', '30m'))
+        self.max_ttl.setText(self.config.get('max_ttl', '24h'))
+        self.allow_user_certs.setChecked(self.config.get('allow_user_certificates', True))
+        self.allow_host_certs.setChecked(self.config.get('allow_host_certificates', False))
+        
+        self.otp_default_user.setText(self.config.get('default_user', ''))
+        self.cidr_list.setText(self.config.get('cidr_list', ''))
+        self.port.setValue(self.config.get('port', 22))
+        
+        algo = self.config.get('algorithm_signer', '')
+        idx = self.algorithm_signer.findText(algo)
+        if idx >= 0:
+            self.algorithm_signer.setCurrentIndex(idx)
+        
+        self.allowed_extensions.setText(self.config.get('allowed_extensions', ''))
+        self.default_extensions.setText(self.config.get('default_extensions', ''))
+    
+    def _save(self):
+        """Save the role."""
+        name = self.name_edit.text().strip()
+        if not name:
+            QMessageBox.warning(self, "Error", "Role name is required")
+            return
+        
+        key_type = self.key_type.currentText()
+        
+        config = {'key_type': key_type}
+        
+        if key_type == 'ca':
+            if self.default_user.text().strip():
+                config['default_user'] = self.default_user.text().strip()
+            if self.allowed_users.text().strip():
+                config['allowed_users'] = self.allowed_users.text().strip()
+            if self.allowed_domains.text().strip():
+                config['allowed_domains'] = self.allowed_domains.text().strip()
+            config['ttl'] = self.ttl.text().strip() or '30m'
+            config['max_ttl'] = self.max_ttl.text().strip() or '24h'
+            config['allow_user_certificates'] = self.allow_user_certs.isChecked()
+            config['allow_host_certificates'] = self.allow_host_certs.isChecked()
+        
+        elif key_type == 'otp':
+            if self.otp_default_user.text().strip():
+                config['default_user'] = self.otp_default_user.text().strip()
+            if self.cidr_list.text().strip():
+                config['cidr_list'] = self.cidr_list.text().strip()
+            config['port'] = self.port.value()
+        
+        if self.algorithm_signer.currentText():
+            config['algorithm_signer'] = self.algorithm_signer.currentText()
+        
+        if self.allowed_extensions.text().strip():
+            config['allowed_extensions'] = self.allowed_extensions.text().strip()
+        
+        if self.default_extensions.text().strip():
+            config['default_extensions'] = self.default_extensions.text().strip()
+        
+        self.saved.emit(name, config)
+        self.accept()
+
+
+class AWSRoleDialog(QDialog):
+    """Dialog for creating/editing AWS roles."""
+    
+    saved = Signal(str, dict)  # name, config
+    
+    def __init__(self, name: str = "", config: Dict = None, is_new: bool = True, parent=None):
+        super().__init__(parent)
+        self.name = name
+        self.config = config or {}
+        self.is_new = is_new
+        self.setWindowTitle("New AWS Role" if is_new else f"Edit AWS Role: {name}")
+        self.setMinimumSize(600, 500)
+        self._setup_ui()
+        self._load_config()
+    
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        
+        form = QFormLayout()
+        
+        # Role name
+        self.name_edit = QLineEdit()
+        self.name_edit.setEnabled(self.is_new)
+        form.addRow("Role Name:", self.name_edit)
+        
+        # Credential type
+        self.cred_type = QComboBox()
+        self.cred_type.addItems(['iam_user', 'assumed_role', 'federation_token'])
+        self.cred_type.currentTextChanged.connect(self._on_cred_type_changed)
+        form.addRow("Credential Type:", self.cred_type)
+        
+        layout.addLayout(form)
+        
+        # IAM user options
+        self.iam_group = QGroupBox("IAM User Options")
+        iam_layout = QFormLayout(self.iam_group)
+        
+        self.policy_arns = QLineEdit()
+        self.policy_arns.setPlaceholderText("Comma-separated ARNs, e.g., arn:aws:iam::aws:policy/ReadOnlyAccess")
+        iam_layout.addRow("Policy ARNs:", self.policy_arns)
+        
+        iam_layout.addWidget(QLabel("Inline Policy (JSON):"))
+        self.policy_document = SyntaxHighlightedTextEdit(syntax='json')
+        self.policy_document.setPlaceholderText('{"Version": "2012-10-17", "Statement": [...]}')
+        self.policy_document.setMaximumHeight(150)
+        iam_layout.addRow(self.policy_document)
+        
+        layout.addWidget(self.iam_group)
+        
+        # Assumed role options
+        self.assume_group = QGroupBox("Assumed Role Options")
+        assume_layout = QFormLayout(self.assume_group)
+        
+        self.role_arns = QLineEdit()
+        self.role_arns.setPlaceholderText("Comma-separated role ARNs to assume")
+        assume_layout.addRow("Role ARNs:", self.role_arns)
+        
+        layout.addWidget(self.assume_group)
+        
+        # Common options
+        common_group = QGroupBox("Common Options")
+        common_layout = QFormLayout(common_group)
+        
+        self.default_ttl = QLineEdit()
+        self.default_ttl.setPlaceholderText("e.g., 1h, 3600")
+        common_layout.addRow("Default TTL:", self.default_ttl)
+        
+        self.max_ttl = QLineEdit()
+        self.max_ttl.setPlaceholderText("e.g., 12h, 43200")
+        common_layout.addRow("Max TTL:", self.max_ttl)
+        
+        self.user_path = QLineEdit()
+        self.user_path.setPlaceholderText("/")
+        common_layout.addRow("IAM User Path:", self.user_path)
+        
+        self.permissions_boundary = QLineEdit()
+        self.permissions_boundary.setPlaceholderText("ARN of permissions boundary policy")
+        common_layout.addRow("Permissions Boundary:", self.permissions_boundary)
+        
+        layout.addWidget(common_group)
+        
+        layout.addStretch()
+        
+        # Buttons
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        
+        save_btn = QPushButton("💾 Save")
+        save_btn.clicked.connect(self._save)
+        button_layout.addWidget(save_btn)
+        
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(cancel_btn)
+        
+        layout.addLayout(button_layout)
+        
+        self._on_cred_type_changed()
+    
+    def _on_cred_type_changed(self):
+        """Show/hide options based on credential type."""
+        cred_type = self.cred_type.currentText()
+        self.iam_group.setVisible(cred_type == 'iam_user')
+        self.assume_group.setVisible(cred_type in ['assumed_role', 'federation_token'])
+    
+    def _load_config(self):
+        """Load existing config."""
+        self.name_edit.setText(self.name)
+        
+        cred_type = self.config.get('credential_type', 'iam_user')
+        idx = self.cred_type.findText(cred_type)
+        if idx >= 0:
+            self.cred_type.setCurrentIndex(idx)
+        
+        policy_arns = self.config.get('policy_arns', [])
+        if isinstance(policy_arns, list):
+            self.policy_arns.setText(','.join(policy_arns))
+        else:
+            self.policy_arns.setText(str(policy_arns))
+        
+        policy_doc = self.config.get('policy_document', '')
+        if isinstance(policy_doc, dict):
+            self.policy_document.setPlainText(json.dumps(policy_doc, indent=2))
+        else:
+            self.policy_document.setPlainText(str(policy_doc))
+        
+        role_arns = self.config.get('role_arns', [])
+        if isinstance(role_arns, list):
+            self.role_arns.setText(','.join(role_arns))
+        else:
+            self.role_arns.setText(str(role_arns))
+        
+        self.default_ttl.setText(self.config.get('default_sts_ttl', ''))
+        self.max_ttl.setText(self.config.get('max_sts_ttl', ''))
+        self.user_path.setText(self.config.get('user_path', ''))
+        self.permissions_boundary.setText(self.config.get('permissions_boundary_arn', ''))
+    
+    def _save(self):
+        """Save the role."""
+        name = self.name_edit.text().strip()
+        if not name:
+            QMessageBox.warning(self, "Error", "Role name is required")
+            return
+        
+        cred_type = self.cred_type.currentText()
+        
+        config = {'credential_type': cred_type}
+        
+        if cred_type == 'iam_user':
+            if self.policy_arns.text().strip():
+                config['policy_arns'] = [a.strip() for a in self.policy_arns.text().split(',') if a.strip()]
+            
+            policy_doc = self.policy_document.toPlainText().strip()
+            if policy_doc:
+                try:
+                    config['policy_document'] = json.loads(policy_doc)
+                except json.JSONDecodeError as e:
+                    QMessageBox.warning(self, "Error", f"Invalid policy JSON: {e}")
+                    return
+        
+        if cred_type in ['assumed_role', 'federation_token']:
+            if self.role_arns.text().strip():
+                config['role_arns'] = [a.strip() for a in self.role_arns.text().split(',') if a.strip()]
+        
+        if self.default_ttl.text().strip():
+            config['default_sts_ttl'] = self.default_ttl.text().strip()
+        
+        if self.max_ttl.text().strip():
+            config['max_sts_ttl'] = self.max_ttl.text().strip()
+        
+        if self.user_path.text().strip():
+            config['user_path'] = self.user_path.text().strip()
+        
+        if self.permissions_boundary.text().strip():
+            config['permissions_boundary_arn'] = self.permissions_boundary.text().strip()
+        
+        self.saved.emit(name, config)
+        self.accept()
+
+
+
+class CloudRoleDialog(QDialog):
+    """Dialog for creating/editing cloud provider roles (GCP, Azure, AliCloud, Oracle, DigitalOcean)."""
+    
+    saved = Signal(str, dict)  # name, config
+    
+    # Cloud provider role templates
+    CLOUD_ROLE_TEMPLATES = {
+        'gcp': {
+            'name': 'Google Cloud',
+            'fields': {
+                'type': {'label': 'Secret Type', 'type': 'combo', 'options': ['access_token', 'service_account_key'], 'default': 'access_token'},
+                'project': {'label': 'GCP Project', 'type': 'string', 'required': True},
+                'bindings': {'label': 'IAM Bindings (HCL)', 'type': 'text', 'default': 'resource "//cloudresourcemanager.googleapis.com/projects/PROJECT_ID" {\n  roles = ["roles/viewer"]\n}'},
+                'token_scopes': {'label': 'Token Scopes (comma-separated)', 'type': 'string', 'default': 'https://www.googleapis.com/auth/cloud-platform'},
+            }
+        },
+        'azure': {
+            'name': 'Microsoft Azure',
+            'fields': {
+                'azure_roles': {'label': 'Azure Roles (JSON array)', 'type': 'text', 'default': '[{"role_name": "Reader", "scope": "/subscriptions/SUBSCRIPTION_ID"}]'},
+                'ttl': {'label': 'TTL', 'type': 'string', 'default': '1h'},
+                'max_ttl': {'label': 'Max TTL', 'type': 'string', 'default': '24h'},
+                'application_object_id': {'label': 'Application Object ID (optional)', 'type': 'string'},
+            }
+        },
+        'alicloud': {
+            'name': 'Alibaba Cloud',
+            'fields': {
+                'remote_policies': {'label': 'Remote Policies (JSON array)', 'type': 'text', 'default': '[{"policy_name": "AliyunOSSReadOnlyAccess", "policy_type": "System"}]'},
+                'inline_policies': {'label': 'Inline Policies (JSON)', 'type': 'text'},
+                'role_arn': {'label': 'Role ARN (for assume_role)', 'type': 'string'},
+                'ttl': {'label': 'TTL', 'type': 'string', 'default': '3600s'},
+                'max_ttl': {'label': 'Max TTL', 'type': 'string', 'default': '86400s'},
+            }
+        },
+        'oracle': {
+            'name': 'Oracle Cloud',
+            'fields': {
+                'ocid': {'label': 'User OCID', 'type': 'string', 'required': True},
+                'home_tenancy_id': {'label': 'Home Tenancy ID', 'type': 'string'},
+                'ttl': {'label': 'TTL', 'type': 'string', 'default': '1h'},
+                'max_ttl': {'label': 'Max TTL', 'type': 'string', 'default': '24h'},
+            }
+        },
+        'digitalocean': {
+            'name': 'DigitalOcean',
+            'fields': {
+                'token_scopes': {'label': 'Token Scopes (comma-separated)', 'type': 'string', 'default': 'read,write'},
+                'ttl': {'label': 'TTL', 'type': 'string', 'default': '3600s'},
+                'max_ttl': {'label': 'Max TTL', 'type': 'string', 'default': '86400s'},
+            }
+        },
+    }
+    
+    def __init__(self, cloud_type: str, name: str = "", config: Dict = None, is_new: bool = True, parent=None):
+        super().__init__(parent)
+        self.cloud_type = cloud_type
+        self.name = name
+        self.config = config or {}
+        self.is_new = is_new
+        self.field_widgets = {}
+        
+        provider = self.CLOUD_ROLE_TEMPLATES.get(cloud_type, {})
+        provider_name = provider.get('name', cloud_type.upper())
+        
+        self.setWindowTitle(f"New {provider_name} Role" if is_new else f"Edit {provider_name} Role: {name}")
+        self.setMinimumSize(600, 450)
+        self._setup_ui()
+        self._load_config()
+    
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        
+        provider = self.CLOUD_ROLE_TEMPLATES.get(self.cloud_type, {})
+        fields = provider.get('fields', {})
+        
+        form = QFormLayout()
+        
+        # Role name
+        self.name_edit = QLineEdit()
+        self.name_edit.setEnabled(self.is_new)
+        form.addRow("Role Name:", self.name_edit)
+        
+        layout.addLayout(form)
+        
+        # Dynamic fields based on cloud type
+        fields_group = QGroupBox("Role Configuration")
+        fields_layout = QFormLayout(fields_group)
+        
+        for field_name, field_info in fields.items():
+            label = field_info.get('label', field_name)
+            field_type = field_info.get('type', 'string')
+            default = field_info.get('default', '')
+            
+            if field_type == 'combo':
+                widget = QComboBox()
+                widget.addItems(field_info.get('options', []))
+                if default:
+                    idx = widget.findText(default)
+                    if idx >= 0:
+                        widget.setCurrentIndex(idx)
+            elif field_type == 'text':
+                widget = SyntaxHighlightedTextEdit(syntax=None)
+                widget.setPlaceholderText(str(default))
+                widget.setMaximumHeight(120)
+            else:
+                widget = QLineEdit()
+                widget.setPlaceholderText(str(default))
+            
+            self.field_widgets[field_name] = widget
+            fields_layout.addRow(f"{label}:", widget)
+        
+        layout.addWidget(fields_group)
+        
+        layout.addStretch()
+        
+        # Buttons
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
+        
+        save_btn = QPushButton("💾 Save")
+        save_btn.clicked.connect(self._save)
+        button_layout.addWidget(save_btn)
+        
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(cancel_btn)
+        
+        layout.addLayout(button_layout)
+    
+    def _load_config(self):
+        """Load existing config."""
+        self.name_edit.setText(self.name)
+        
+        for field_name, widget in self.field_widgets.items():
+            value = self.config.get(field_name, '')
+            
+            if isinstance(widget, QComboBox):
+                idx = widget.findText(str(value))
+                if idx >= 0:
+                    widget.setCurrentIndex(idx)
+            elif isinstance(widget, (QTextEdit, QPlainTextEdit)):
+                if isinstance(value, (dict, list)):
+                    widget.setPlainText(json.dumps(value, indent=2))
+                else:
+                    widget.setPlainText(str(value) if value else '')
+            else:
+                if isinstance(value, list):
+                    widget.setText(','.join(value))
+                else:
+                    widget.setText(str(value) if value else '')
+    
+    def _save(self):
+        """Save the role."""
+        name = self.name_edit.text().strip()
+        if not name:
+            QMessageBox.warning(self, "Error", "Role name is required")
+            return
+        
+        provider = self.CLOUD_ROLE_TEMPLATES.get(self.cloud_type, {})
+        fields = provider.get('fields', {})
+        
+        config = {}
+        
+        for field_name, widget in self.field_widgets.items():
+            field_info = fields.get(field_name, {})
+            
+            if isinstance(widget, QComboBox):
+                value = widget.currentText()
+            elif isinstance(widget, (QTextEdit, QPlainTextEdit)):
+                text = widget.toPlainText().strip()
+                # Try to parse as JSON for certain fields
+                if text and field_name in ('azure_roles', 'remote_policies', 'inline_policies'):
+                    try:
+                        value = json.loads(text)
+                    except json.JSONDecodeError:
+                        value = text
+                else:
+                    value = text
+            else:
+                text = widget.text().strip()
+                # Convert comma-separated to list for certain fields
+                if text and field_name in ('token_scopes',):
+                    value = [s.strip() for s in text.split(',')]
+                else:
+                    value = text
+            
+            if value:
+                config[field_name] = value
+        
+        self.saved.emit(name, config)
+        self.accept()

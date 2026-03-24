@@ -27,24 +27,13 @@ class PackerMenuBuilder(QObject):
         """Reset client to pick up new settings."""
         self._client = None
     
-    def build_menu(self) -> QMenu:
-        menu = QMenu("📦 Packer")
-        
-        # Templates
-        templates_menu = self._create_templates_menu()
-        menu.addMenu(templates_menu)
-        
-        menu.addSeparator()
-        
-        # Plugins
-        plugins_menu = self._create_plugins_menu()
-        menu.addMenu(plugins_menu)
-        
-        return menu
-    
-    def _create_templates_menu(self) -> QMenu:
-        menu = AsyncMenu("📁 Templates", self._load_templates)
+    def build_menu(self) -> AsyncMenu:
+        menu = AsyncMenu("📦 Packer", self._load_templates)
         menu.set_submenu_factory(self._create_template_submenu)
+        def _pk_footer(m):
+            plugins_menu = self._create_plugins_menu()
+            m.addMenu(plugins_menu)
+        menu.set_footer_builder(_pk_footer)
         return menu
     
     def _load_templates(self) -> list:

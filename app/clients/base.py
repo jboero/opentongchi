@@ -106,11 +106,26 @@ class BaseHTTPClient:
             except json.JSONDecodeError:
                 error_data = error_body
             
+            # Extract detailed error message from Vault/OpenBao response
+            error_msg = str(e)
+            if error_data:
+                if isinstance(error_data, dict):
+                    # Vault typically returns errors in 'errors' array
+                    errors = error_data.get('errors', [])
+                    if errors:
+                        error_msg = '; '.join(errors)
+                    elif 'error' in error_data:
+                        error_msg = error_data['error']
+                    elif 'message' in error_data:
+                        error_msg = error_data['message']
+                elif isinstance(error_data, str):
+                    error_msg = error_data
+            
             return APIResponse(
                 status_code=e.code,
                 data=error_data,
                 headers=dict(e.headers) if e.headers else {},
-                error=str(e)
+                error=error_msg
             )
         
         except urllib.error.URLError as e:
@@ -144,9 +159,15 @@ class BaseHTTPClient:
         """Make a PUT request."""
         return self._make_request('PUT', path, data=data, headers=headers)
     
-    def delete(self, path: str, headers: Dict[str, str] = None) -> APIResponse:
+    def patch(self, path: str, data: Any = None,
+              headers: Dict[str, str] = None) -> APIResponse:
+        """Make a PATCH request."""
+        return self._make_request('PATCH', path, data=data, headers=headers)
+    
+    def delete(self, path: str, headers: Dict[str, str] = None,
+               params: Dict[str, str] = None) -> APIResponse:
         """Make a DELETE request."""
-        return self._make_request('DELETE', path, headers=headers)
+        return self._make_request('DELETE', path, headers=headers, params=params)
     
     def list(self, path: str, params: Dict[str, str] = None) -> APIResponse:
         """Make a LIST request (GET with list=true)."""

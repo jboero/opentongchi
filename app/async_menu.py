@@ -28,6 +28,7 @@ class AsyncMenu(QMenu):
         self._submenu_factory: Optional[Callable] = None
         self._new_item_callback: Optional[Callable] = None
         self._new_item_text: str = "➕ New..."
+        self._footer_builder: Optional[Callable] = None
         
         # Add loading placeholder
         self._loading_action = self.addAction("⏳ Loading...")
@@ -48,6 +49,11 @@ class AsyncMenu(QMenu):
         """Set callback for creating new items."""
         self._new_item_callback = callback
         self._new_item_text = text
+
+    def set_footer_builder(self, builder: Callable):
+        """Set a callback that adds extra items after the loaded content.
+        The builder receives this menu as its argument."""
+        self._footer_builder = builder
     
     def _on_about_to_show(self):
         """Handle menu about to show - load items synchronously."""
@@ -87,6 +93,10 @@ class AsyncMenu(QMenu):
         else:
             for item in items:
                 self._add_item(item)
+
+        if self._footer_builder:
+            self.addSeparator()
+            self._footer_builder(self)
     
     def _add_item(self, item):
         """Add a single item to the menu."""
